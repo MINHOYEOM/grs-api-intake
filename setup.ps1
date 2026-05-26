@@ -19,6 +19,10 @@
 
 [CmdletBinding()]
 param(
+    # Codex Pass 3 should-fix: validate $RepoName at parameter binding to prevent
+    # quote/space injection into the gh secret set ProcessStartInfo Arguments string.
+    # GitHub repository name rules allow [A-Za-z0-9._-] only.
+    [ValidatePattern('^[A-Za-z0-9._-]+$')]
     [string]$RepoName = "grs-api-intake",
     [ValidateSet("public","private")][string]$Visibility = "public",
     [string]$NotionDatabaseId = "7784c71fb7b343749b2bee5d04db7926"
@@ -125,9 +129,17 @@ Write-Title "2. Inputs"
 
 $tmp = Read-Host "Repo name [$RepoName]"
 if ($tmp) { $RepoName = $tmp }
+# Codex Pass 3 should-fix: parameter ValidatePattern doesn't catch values
+# assigned interactively. Re-validate.
+if ($RepoName -notmatch '^[A-Za-z0-9._-]+$') {
+    Fail-And-Exit "Invalid repo name '$RepoName'. Allowed characters: A-Z a-z 0-9 . _ -"
+}
 
 $tmp = Read-Host "Visibility public/private [$Visibility]"
 if ($tmp) { $Visibility = $tmp }
+if ($Visibility -notin @("public","private")) {
+    Fail-And-Exit "Invalid visibility '$Visibility'. Must be 'public' or 'private'."
+}
 
 $tmp = Read-Host "Notion Database ID [$NotionDatabaseId]"
 if ($tmp) { $NotionDatabaseId = $tmp }
@@ -230,47 +242,68 @@ if (-not $cfgName)  { Invoke-Native { git config user.name "$ghUser" } -IgnoreSt
 
 Invoke-Native { git add . } -IgnoreStderr | Out-Null
 
-# git diff --cached --quiet returns: 0 = no staged changes, 1 = staged changes present
+# Codex nice-to-have: distinguish git diff --cached exit codes.
+#   0  = no staged changes (nothing to commit)
+#   1  = staged changes present (proceed to commit)
+#   >1 = unexpected git error (corrupted repo, bad refs, etc.) - fail loudly
 Invoke-Native { git diff --cached --quiet } -IgnoreStderr | Out-Null
-$hasStaged = ($script:LastNativeExit -ne 0)
+$diffExit = $script:LastNativeExit
 
-if (-not $hasStaged) {
+if ($diffExit -eq 0) {
     Write-Warn "Nothing to commit (already pushed?)."
-} else {
+} elseif ($diffExit -eq 1) {
     Invoke-Native { git commit -m "Initial v15.0 Phase 1 - intake collector + workflow + Routine prompt" } -IgnoreStderr | Out-Null
     if ($script:LastNativeExit -ne 0) {
-        Fail-And-Exit "git commit failed."
+        Fail-And-Exit "git commit failed (exit $($script:LastNativeExit))."
     }
     Write-Ok "Commit created"
+} else {
+    Fail-And-Exit "git diff --cached failed with unexpected exit code $diffExit. Repository may be corrupted."
 }
 
 Invoke-Native { git branch -M main } -IgnoreStderr | Out-Null
 
+# Codex should-fix: push failure must propagate to setup exit code; previously
+# we printed a warning and then claimed success at the end.
 $pushOut = Invoke-Native { git push -u origin main }
-if ($script:LastNativeExit -eq 0) {
+$script:PushSuccess = ($script:LastNativeExit -eq 0)
+if ($script:PushSuccess) {
     Write-Ok "push complete"
 } else {
     Write-Warn "push failed:"
     Write-Host ($pushOut -join "`n")
-    Write-Warn "Try 'git push -u origin main' manually after fixing the cause."
+    Write-Warn "Continuing with secret registration (idempotent), but setup will exit non-zero."
 }
 
 # ---- 5. Register secrets ----
 Write-Title "5. Register GitHub Secrets"
 
 function Set-RepoSecret($name, $value) {
-    # Write secret to a 0-permission temp file, pass to gh via stdin redirection,
-    # delete immediately. Avoids leaking to process list (cmd args) or log files.
-    $tmp = New-TemporaryFile
-    try {
-        [System.IO.File]::WriteAllText($tmp.FullName, $value, [System.Text.UTF8Encoding]::new($false))
-        $content = Get-Content -Raw -LiteralPath $tmp.FullName
-        Invoke-Native { gh secret set $name --repo "$ghUser/$RepoName" --body $content } | Out-Null
-        if ($script:LastNativeExit -ne 0) {
-            throw "gh secret set $name failed (exit $($script:LastNativeExit))"
-        }
-    } finally {
-        if (Test-Path -LiteralPath $tmp.FullName) { Remove-Item -Force -LiteralPath $tmp.FullName }
+    # Codex should-fix #3: never pass the secret via `--body $value`, because that
+    # puts it in the gh process argv. GitHub CLI reads the secret from stdin when
+    # --body is omitted. Use ProcessStartInfo so we can write exact bytes without
+    # PowerShell pipeline newline conversion. Keep this Windows PowerShell 5.1
+    # compatible: avoid ProcessStartInfo.ArgumentList and *Encoding properties
+    # that are not available on older .NET Framework hosts.
+    $psi = [System.Diagnostics.ProcessStartInfo]::new()
+    $psi.FileName = "gh"
+    $psi.Arguments = "secret set `"$name`" --repo `"$ghUser/$RepoName`""
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardInput = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+
+    $proc = [System.Diagnostics.Process]::Start($psi)
+    $proc.StandardInput.Write($value)
+    $proc.StandardInput.Close()
+    $stdout = $proc.StandardOutput.ReadToEnd()
+    $stderr = $proc.StandardError.ReadToEnd()
+    $proc.WaitForExit()
+
+    if ($proc.ExitCode -ne 0) {
+        if ($stdout) { Write-Host $stdout }
+        if ($stderr) { Write-Err $stderr }
+        throw "gh secret set $name failed (exit $($proc.ExitCode))"
     }
 }
 
@@ -304,6 +337,18 @@ $OpenfdaKey = $null
 # ---- 6. Done ----
 Write-Title "6. Setup complete"
 
+# Codex should-fix: don't claim success if git push failed earlier.
+if (-not $script:PushSuccess) {
+    Write-Err "Setup completed with errors: git push failed."
+    Write-Host "Resolve the push issue and re-run 'git push -u origin main' manually."
+    Write-Host "Secrets were still registered (idempotent), so on retry you only need to push."
+    Write-Host ""
+    Write-Info "Repo URL: $repoUrl"
+    Write-Info "Actions:  $repoUrl/actions"
+    Write-Info "Secrets:  $repoUrl/settings/secrets/actions"
+    exit 1
+}
+
 Write-Ok "All steps succeeded."
 Write-Host ""
 Write-Host "Next steps (manual):"
@@ -318,7 +363,7 @@ Write-Host "  3) If dry-run is OK, run again with dry_run: false to write to Not
 Write-Host ""
 Write-Host "  4) Paste the contents of GRS_Prompt_v15.0.md into your Claude Code Routine"
 Write-Host ""
-Write-Host "  5) Cron schedule: every Sunday 22:00 UTC (Monday 07:00 KST)"
+Write-Host "  5) Cron schedule: every Sunday 22:07 UTC (Monday 07:07 KST)"
 Write-Host ""
 Write-Info "Repo URL: $repoUrl"
 Write-Info "Actions:  $repoUrl/actions"
