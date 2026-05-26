@@ -267,29 +267,31 @@ if ($script:PushSuccess) {
 Write-Title "5. Register GitHub Secrets"
 
 function Set-RepoSecret($name, $value) {
-    # Codex should-fix #3: previously this passed the secret as `--body $content`,
-    # which puts the secret in the gh process's argv (visible in OS process listings
-    # for the lifetime of the gh call). Switch to `--body-file <path>` so only the
-    # temp file path appears in argv; the secret never enters the command line.
-    #
-    # WriteAllBytes writes raw UTF-8 bytes with no BOM and no trailing newline, so
-    # gh stores exactly the bytes we intend (a CRLF would corrupt the token value).
-    $tmp = New-TemporaryFile
-    try {
-        [System.IO.File]::WriteAllBytes(
-            $tmp.FullName,
-            [System.Text.Encoding]::UTF8.GetBytes($value)
-        )
-        Invoke-Native {
-            gh secret set $name --repo "$ghUser/$RepoName" --body-file $tmp.FullName
-        } | Out-Null
-        if ($script:LastNativeExit -ne 0) {
-            throw "gh secret set $name failed (exit $($script:LastNativeExit))"
-        }
-    } finally {
-        if (Test-Path -LiteralPath $tmp.FullName) {
-            Remove-Item -Force -LiteralPath $tmp.FullName
-        }
+    # Codex should-fix #3: never pass the secret via `--body $value`, because that
+    # puts it in the gh process argv. GitHub CLI reads the secret from stdin when
+    # --body is omitted. Use ProcessStartInfo so we can write exact bytes without
+    # PowerShell pipeline newline conversion. Keep this Windows PowerShell 5.1
+    # compatible: avoid ProcessStartInfo.ArgumentList and *Encoding properties
+    # that are not available on older .NET Framework hosts.
+    $psi = [System.Diagnostics.ProcessStartInfo]::new()
+    $psi.FileName = "gh"
+    $psi.Arguments = "secret set `"$name`" --repo `"$ghUser/$RepoName`""
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardInput = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+
+    $proc = [System.Diagnostics.Process]::Start($psi)
+    $proc.StandardInput.Write($value)
+    $proc.StandardInput.Close()
+    $stdout = $proc.StandardOutput.ReadToEnd()
+    $stderr = $proc.StandardError.ReadToEnd()
+    $proc.WaitForExit()
+
+    if ($proc.ExitCode -ne 0) {
+        if ($stdout) { Write-Host $stdout }
+        if ($stderr) { Write-Err $stderr }
+        throw "gh secret set $name failed (exit $($proc.ExitCode))"
     }
 }
 

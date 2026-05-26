@@ -10,7 +10,7 @@ Self-contained record of which findings were addressed, how, and which were inte
 | Notion insert failures don't fail workflow | must-fix | ✅ fixed | `insert_items` returns `(inserted, skipped, failed)`. `main()` exits 1 when `total_attempts > 0 and total_failed == total_attempts`. |
 | Dedup query failure returns empty set → duplicate everything | must-fix | ✅ fixed | `notion_query_existing_doc_ids` now `raise RuntimeError(...) from e`. `main()` catches and exits 1 before any insert. |
 | `window_days` shell interpolation | should-fix | ✅ fixed | Moved to `env.INPUT_WINDOW_DAYS`. Regex validation `^[0-9]+$` in shell. |
-| `gh secret set --body $content` argv exposure | should-fix | ✅ fixed | Switched to `--body-file $tmp.FullName`. Temp file holds raw UTF-8 bytes (no BOM, no trailing newline) via `WriteAllBytes`. Path only enters argv. |
+| `gh secret set --body $content` argv exposure | should-fix | ✅ fixed | PowerShell now starts `gh secret set` with redirected stdin and writes the exact secret via `.StandardInput.Write($value)`. No secret in argv and no pipeline-added trailing newline. |
 | Cron `0 22 * * 0` top-of-hour drop risk | should-fix | ✅ fixed | Changed to `7 22 * * 0` (Sun 22:07 UTC = Mon 07:07 KST). Routine still has ~23 min buffer. |
 | Failure issue title uses UTC date | should-fix | ✅ fixed | Computes `kstNow = Date.now() + 9h` and slices ISO. Title now `GRS Intake failure - {kstDate} KST - run #{runNumber}`. |
 | OpenFDA 404 detection via string match | should-fix | ✅ fixed | Now `except requests.HTTPError as e: if e.response.status_code == 404`. Raw URL no longer in the matched string. |
@@ -35,7 +35,7 @@ Reflected. Codex: nice-to-have, not mandatory on `ubuntu-latest`, harmless. Set 
 
 ### Q2. Better secret-passing pattern than the temp file?
 
-Reflected via `--body-file`. Codex's "stdin via `--body -`" works in bash (`setup.sh` already does `printf '%s' "$value" | gh secret set ... --body -`) because `printf '%s'` does not append a newline. In PowerShell, piping a string to a native command appends `[Environment]::NewLine`, which `gh secret set` persists into the stored secret value — a Notion token with `\r\n` appended breaks the Bearer header. `--body-file` avoids both argv exposure and the trailing-newline corruption without needing complex stdin redirection. Both transports never put the secret in argv.
+Reflected via redirected stdin. Codex's "stdin via `--body -`" works in bash (`setup.sh` already does `printf '%s' "$value" | gh secret set ... --body -`) because `printf '%s'` does not append a newline. In PowerShell, piping a string to a native command appends `[Environment]::NewLine`, which `gh secret set` persists into the stored secret value — a Notion token with `\r\n` appended breaks the Bearer header. PowerShell therefore uses `System.Diagnostics.ProcessStartInfo` with redirected stdin and `.StandardInput.Write($value)` so `gh` receives the secret without argv exposure or newline corruption.
 
 ### Q3. `git diff --cached --quiet` exit code semantics
 
@@ -69,7 +69,7 @@ Deferred to Phase 2 because Phase 1 relies on the dry-run / live-run validation 
 |---|---|
 | `collect_intake.py` | `http_get_json` retry + URL masking refactor; OpenFDA 404 via HTTPError; FR pagination cap surfaces error; `CollectionStats` adds `*_failed`; `insert_items` returns failed count; `notion_query_existing_doc_ids` fails closed; `main()` exits 1 on dedup fail or 100% sink fail; FR/Recall error messages masked. |
 | `.github/workflows/grs-intake.yml` | Cron `0 22` → `7 22`. `workflow_dispatch` inputs moved to env vars + regex-validated. `PYTHONIOENCODING: utf-8` added. Failure issue title uses KST date + run number. |
-| `setup.ps1` | `Set-RepoSecret` uses `--body-file` (no argv exposure, no trailing newline). `git diff --cached` exit code distinguished. `git push` failure propagates to setup exit code via `$script:PushSuccess`. |
+| `setup.ps1` | `Set-RepoSecret` uses redirected stdin via `ProcessStartInfo` (no argv exposure, no trailing newline). `git diff --cached` exit code distinguished. `git push` failure propagates to setup exit code via `$script:PushSuccess`. |
 | `setup.sh` | Same `git diff --cached` exit-code handling and push-failure propagation as PowerShell. Secrets path was already correct (`printf '%s' \| gh ... --body -`). |
 | `.gitattributes` | New: `* text=auto eol=lf`. Eliminates Windows LF→CRLF warning noise. |
 | `CODEX_REVIEW_RESPONSE.md` | This file. |
@@ -88,7 +88,20 @@ Deferred to Phase 2 because Phase 1 relies on the dry-run / live-run validation 
 - `_mask_api_key` call sites: 6 (was 2).
 - workflow `Run collector` env keys: `EVENT_NAME`, `INPUT_DRY_RUN`, `INPUT_WINDOW_DAYS`, `NOTION_DATABASE_ID`, `NOTION_TOKEN`, `OPENFDA_API_KEY`, `PYTHONIOENCODING`.
 
-## Pending operator action
+## Second-pass Codex verification
+
+- PR opened: https://github.com/MINHOYEOM/grs-api-intake/pull/2
+- Corrected during second pass: `gh secret set --body-file` is not supported by GitHub CLI 2.92.0. PowerShell secret registration now uses redirected stdin via `ProcessStartInfo`.
+- Validation re-run:
+  - `py -3 -m py_compile collect_intake.py` → OK
+  - `npx --yes js-yaml .github/workflows/grs-intake.yml` → OK
+  - `C:\Program Files\Git\bin\bash.exe -n setup.sh` → OK
+  - `setup.ps1` parse check via `[scriptblock]::Create(...)` → OK
+  - `gh secret set` redirected-stdin probe with `--no-store` → OK
+  - `py -3 collect_intake.py --dry-run` → OK (12 FR + 3 recalls)
+  - targeted probes for API-key redaction, retry/no-retry behavior, OpenFDA 404-as-empty, Notion insert failure counting, and dedup fail-closed → OK
+
+## Original operator action
 
 Push these changes to a new branch and open a PR for re-review:
 
