@@ -1,4 +1,4 @@
-name: GRS API Intake (Weekly)
+name: GRM API Intake (Weekly)
 
 # 매주 일요일 20:17 UTC = 월요일 05:17 KST
 # Claude Code Routine (월 07:30 KST) 2시간 전에 수집 완료 목표
@@ -27,7 +27,7 @@ permissions:
   issues: write  # 실패 시 자동 이슈 생성용
 
 concurrency:
-  group: grs-intake
+  group: grm-intake
   cancel-in-progress: false
 
 jobs:
@@ -62,21 +62,21 @@ jobs:
           NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
           OPENFDA_API_KEY: ${{ secrets.OPENFDA_API_KEY }}
           # workflow_dispatch 입력을 env 변수로만 받아 shell 본문에 직접 삽입 금지
-          GRS_DRY_RUN: ${{ inputs.dry_run }}
-          GRS_WINDOW_DAYS: ${{ inputs.window_days }}
+          GRM_DRY_RUN: ${{ inputs.dry_run }}
+          GRM_WINDOW_DAYS: ${{ inputs.window_days }}
           # github.event_name을 env로 노출 — shell 본문 ${{ }} 직접 삽입 방지 (W2)
-          GRS_EVENT_NAME: ${{ github.event_name }}
+          GRM_EVENT_NAME: ${{ github.event_name }}
         run: |
           # bash array 방식 — 인자를 문자열 연결하지 않아 quoting/injection 문제 없음
           args=()
-          if [ "$GRS_EVENT_NAME" = "workflow_dispatch" ]; then
-            if [ "$GRS_DRY_RUN" = "true" ]; then args+=(--dry-run); fi
+          if [ "$GRM_EVENT_NAME" = "workflow_dispatch" ]; then
+            if [ "$GRM_DRY_RUN" = "true" ]; then args+=(--dry-run); fi
 
             # W1: 범위 검증 — 비정수 입력 시 경고 후 기본값 7; 범위(1-90) 초과 시 exit 1
-            if printf '%s' "$GRS_WINDOW_DAYS" | grep -qE '^[0-9]+$'; then
-              WINDOW_DAYS_VAL="$GRS_WINDOW_DAYS"
+            if printf '%s' "$GRM_WINDOW_DAYS" | grep -qE '^[0-9]+$'; then
+              WINDOW_DAYS_VAL="$GRM_WINDOW_DAYS"
             else
-              echo "::warning ::window_days '$GRS_WINDOW_DAYS' is not an integer — using default 7"
+              echo "::warning ::window_days '$GRM_WINDOW_DAYS' is not an integer — using default 7"
               WINDOW_DAYS_VAL="7"
             fi
             if (( WINDOW_DAYS_VAL < 1 || WINDOW_DAYS_VAL > 90 )); then
@@ -97,9 +97,9 @@ jobs:
             await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: `GRS Intake 실패 — ${today}`,
+              title: `GRM Intake 실패 — ${today}`,
               body: [
-                '주간 GRS API Intake 수집기가 실패했습니다.',
+                '주간 GRM API Intake 수집기가 실패했습니다.',
                 '',
                 `- Run: ${runUrl}`,
                 `- Trigger: ${context.eventName}`,
@@ -112,5 +112,5 @@ jobs:
                 '',
                 '실패해도 Claude Routine 은 v14.5 WebSearch-only 모드로 graceful degradation 됩니다.',
               ].join('\n'),
-              labels: ['grs-intake', 'automation-failure'],
+              labels: ['grm-intake', 'automation-failure'],
             });

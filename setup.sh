@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# GRS v15.0 Phase 1 — GitHub 원샷 셋업 스크립트 (bash)
+# GRM v15.0 Phase 1 — GitHub 원샷 셋업 스크립트 (bash)
 #
 # 수행 작업:
 #   1) gh CLI · git 설치 / 인증 확인
@@ -16,12 +16,12 @@
 #   bash setup.sh
 #   또는 환경변수 미리 지정:
 #     NOTION_TOKEN='ntn_...' NOTION_DATABASE_ID='7784...' OPENFDA_API_KEY='...' \
-#       REPO_NAME='grs-api-intake' bash setup.sh
+#       REPO_NAME='grm-api-intake' bash setup.sh
 
 set -euo pipefail
 
 # ─── 상수 ───────────────────────────────────────────────────────────────────
-DEFAULT_REPO_NAME="grs-api-intake"
+DEFAULT_REPO_NAME="grm-api-intake"
 DEFAULT_VISIBILITY="public"
 DEFAULT_NOTION_DB_ID="7784c71fb7b343749b2bee5d04db7926"
 REQUIRED_FILES=(
@@ -31,8 +31,8 @@ REQUIRED_FILES=(
   ".env.example"
   "README.md"
   "notion_intake_db_schema.md"
-  "GRS_Prompt_v15.0.md"
-  ".github/workflows/grs-intake.yml"
+  "GRM_Prompt_v15.0.md"
+  ".github/workflows/grm-intake.yml"
 )
 
 # ─── 색상 (TTY 일 때만) ─────────────────────────────────────────────────────
@@ -142,7 +142,7 @@ if gh repo view "${GH_USER}/${REPO_NAME}" >/dev/null 2>&1; then
 else
   gh repo create "${REPO_NAME}" \
     --"${VISIBILITY}" \
-    --description "GRS API Intake — Federal Register + OpenFDA weekly collector for Claude Routine v15.0" \
+    --description "GRM API Intake — Federal Register + OpenFDA weekly collector for Claude Routine v15.0" \
     --disable-wiki \
     >/dev/null
   REPO_URL="https://github.com/${GH_USER}/${REPO_NAME}"
@@ -223,16 +223,16 @@ title "6. 셋업 완료"
 ok "모든 단계 성공."
 echo
 echo "다음 단계 (수동):"
-echo "  1) Notion 에서 Integration 을 'Global Regulatory Sweep' 부모 페이지에 연결"
+echo "  1) Notion 에서 Integration 을 'Global Regulatory Monitor' 부모 페이지에 연결"
 echo "     (Notion → 부모 페이지 → ⋯ → Connections → 해당 Integration 추가)"
 echo
 echo "  2) GitHub Actions 수동 dry-run 으로 검증:"
-echo "     ${REPO_URL}/actions/workflows/grs-intake.yml"
+echo "     ${REPO_URL}/actions/workflows/grm-intake.yml"
 echo "     → Run workflow → dry_run: true"
 echo
 echo "  3) dry-run 성공 시 dry_run: false 로 한 번 더 실행 → 실제 Notion 적재"
 echo
-echo "  4) GRS_Prompt_v15.0_patch.md 의 2개 치환을 GRS_Prompt_v15.0.md 에 적용 후"
+echo "  4) GRM_Prompt_v15.0_patch.md 의 2개 치환을 GRM_Prompt_v15.0.md 에 적용 후"
 echo "     Claude Code Routine 설정에 통째로 붙여넣기"
 echo
 echo "  5) 매주 일요일 22:00 UTC (월요일 07:00 KST) 자동 실행"

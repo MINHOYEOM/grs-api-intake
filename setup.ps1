@@ -1,4 +1,4 @@
-﻿# GRS v15.0 Phase 1 - GitHub one-shot setup (PowerShell, Windows native)
+﻿# GRM v15.0 Phase 1 - GitHub one-shot setup (PowerShell, Windows native)
 #
 # Runs:
 #   1) Check gh CLI + git installed and authenticated
@@ -11,7 +11,7 @@
 # Never echoed to terminal, git history, or log files.
 #
 # Usage:
-#   cd "C:\Users\user\Desktop\Global Regulatory Sweep\v15.0-implementation"
+#   cd "C:\Users\user\Desktop\Global Regulatory Monitor\v15.0-implementation"
 #   powershell -ExecutionPolicy Bypass -File .\setup.ps1
 #
 # Pre-set env vars (optional):
@@ -19,7 +19,7 @@
 
 [CmdletBinding()]
 param(
-    [string]$RepoName = "grs-api-intake",
+    [string]$RepoName = "grm-api-intake",
     [ValidateSet("public","private")][string]$Visibility = "public",
     [string]$NotionDatabaseId = "7784c71fb7b343749b2bee5d04db7926"
 )
@@ -40,8 +40,8 @@ $RequiredFiles = @(
     ".env.example",
     "README.md",
     "notion_intake_db_schema.md",
-    "GRS_Prompt_v15.0.md",
-    ".github/workflows/grs-intake.yml"
+    "GRM_Prompt_v15.0.md",
+    ".github/workflows/grm-intake.yml"
 )
 
 function Write-Title($t) { Write-Host ""; Write-Host "-- $t --" -ForegroundColor White }
@@ -182,7 +182,7 @@ if ($exists) {
     $visFlag = "--$Visibility"
     $createOut = Invoke-Native {
         gh repo create $RepoName $visFlag `
-            --description "GRS API Intake - Federal Register + OpenFDA weekly collector for Claude Routine v15.0" `
+            --description "GRM API Intake - Federal Register + OpenFDA weekly collector for Claude Routine v15.0" `
             --disable-wiki
     }
     if ($script:LastNativeExit -ne 0) {
@@ -321,16 +321,16 @@ Write-Title "6. Setup complete"
 Write-Ok "All steps succeeded."
 Write-Host ""
 Write-Host "Next steps (manual):"
-Write-Host "  1) In Notion, connect the Integration to the 'Global Regulatory Sweep' parent page"
+Write-Host "  1) In Notion, connect the Integration to the 'Global Regulatory Monitor' parent page"
 Write-Host "     (Notion -> parent page -> ... -> Connections -> add the integration)"
 Write-Host ""
 Write-Host "  2) Trigger a manual dry-run to verify:"
-Write-Host "     $repoUrl/actions/workflows/grs-intake.yml"
+Write-Host "     $repoUrl/actions/workflows/grm-intake.yml"
 Write-Host "     -> Run workflow -> dry_run: true"
 Write-Host ""
 Write-Host "  3) If dry-run is OK, run again with dry_run: false to write to Notion"
 Write-Host ""
-Write-Host "  4) Paste the contents of GRS_Prompt_v15.0.md into your Claude Code Routine"
+Write-Host "  4) Paste the contents of GRM_Prompt_v15.0.md into your Claude Code Routine"
 Write-Host ""
 Write-Host "  5) Cron schedule: every Sunday 22:00 UTC (Monday 07:00 KST)"
 Write-Host ""

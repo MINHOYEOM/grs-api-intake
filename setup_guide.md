@@ -29,7 +29,7 @@ gh auth status
 ### Windows (PowerShell · 권장)
 
 ```powershell
-cd "C:\Users\user\Desktop\Global Regulatory Sweep (1)\v15.0-implementation"
+cd "C:\Users\user\Desktop\Global Regulatory Monitor (1)\v15.0-implementation"
 
 # (먼저 outputs 폴더의 setup.ps1 을 이 폴더로 복사 — 또는 직접 다운로드)
 copy "$env:APPDATA\Claude\local-agent-mode-sessions\...\outputs\setup.ps1" .
@@ -55,7 +55,7 @@ bash:
 NOTION_TOKEN='ntn_xxxxx...' \
 NOTION_DATABASE_ID='7784c71fb7b343749b2bee5d04db7926' \
 OPENFDA_API_KEY='your_openfda_key_here' \
-REPO_NAME='grs-api-intake' \
+REPO_NAME='grm-api-intake' \
 bash setup.sh
 ```
 
@@ -64,7 +64,7 @@ PowerShell:
 $env:NOTION_TOKEN = 'ntn_xxxxx...'
 $env:NOTION_DATABASE_ID = '7784c71fb7b343749b2bee5d04db7926'
 $env:OPENFDA_API_KEY = 'your_openfda_key_here'
-.\setup.ps1 -RepoName 'grs-api-intake' -Visibility 'public'
+.\setup.ps1 -RepoName 'grm-api-intake' -Visibility 'public'
 ```
 
 > 환경변수는 셸 history 에 남을 수 있으므로 사용 후 `unset NOTION_TOKEN` (bash) 또는 `Remove-Item Env:NOTION_TOKEN` (PowerShell) 권장.
@@ -73,9 +73,9 @@ $env:OPENFDA_API_KEY = 'your_openfda_key_here'
 
 | 질문 | 기본값 | 의미 |
 |---|---|---|
-| 저장소 이름 | `grs-api-intake` | GitHub repo 이름 (Enter 로 기본값 사용) |
+| 저장소 이름 | `grm-api-intake` | GitHub repo 이름 (Enter 로 기본값 사용) |
 | 공개 / 비공개 | `public` | Public 권장 (Actions 무료 무제한) |
-| Notion Database ID | `7784c71fb7b343749b2bee5d04db7926` | 이미 생성된 GRS API Intake DB ID |
+| Notion Database ID | `7784c71fb7b343749b2bee5d04db7926` | 이미 생성된 GRM API Intake DB ID |
 | NOTION_TOKEN | (없음) | 화면에 안 보이게 입력. Notion Integration 토큰 |
 | OPENFDA_API_KEY | (없음) | 선택. Enter 누르면 등록 안 함 |
 
@@ -101,14 +101,14 @@ $env:OPENFDA_API_KEY = 'your_openfda_key_here'
 스크립트 마지막 출력의 3개 URL 확인:
 
 1. **Repo URL** → 파일 8개가 push 됐는지
-2. **Actions** → `GRS API Intake (Weekly)` 워크플로가 보이는지
+2. **Actions** → `GRM API Intake (Weekly)` 워크플로가 보이는지
 3. **Secrets** → 3개 (또는 2개) Secret 이름이 보이는지
 
 그 다음 Actions 페이지에서:
 
-1. `GRS API Intake (Weekly)` 선택 → `Run workflow` 버튼 → `dry_run: true` 선택 → 실행
+1. `GRM API Intake (Weekly)` 선택 → `Run workflow` 버튼 → `dry_run: true` 선택 → 실행
 2. 약 2분 후 Job Summary 확인 — `Federal Register: fetched N` 처럼 보여야 정상
-3. 같은 절차로 `dry_run: false` 실행 → Notion `GRS API Intake` DB 에 row 생김
+3. 같은 절차로 `dry_run: false` 실행 → Notion `GRM API Intake` DB 에 row 생김
 
 이 두 검증이 통과하면 매주 일요일 22:00 UTC (월요일 07:00 KST) 부터 자동 실행됩니다.
 

@@ -1,4 +1,4 @@
-# GRS API Intake — v15.0 Phase 1
+# GRM API Intake — v15.0 Phase 1
 
 Federal Register + OpenFDA Drug Enforcement API 를 매주 1회 호출해 Notion 데이터베이스에 raw 데이터를 저장하는 GitHub Actions 수집기입니다. Claude Code Routine (v15.0) 이 이 데이터를 0단계에서 읽어 다이제스트에 통합합니다.
 
@@ -7,10 +7,10 @@ Federal Register + OpenFDA Drug Enforcement API 를 매주 1회 호출해 Notion
 | 파일 | 역할 |
 |---|---|
 | `collect_intake.py` | FR + OpenFDA 호출 → Notion 적재 (Python 3.12) |
-| `.github/workflows/grs-intake.yml` | 매주 일요일 22:00 UTC (월요일 07:00 KST) 자동 실행 |
+| `.github/workflows/grm-intake.yml` | 매주 일요일 22:00 UTC (월요일 07:00 KST) 자동 실행 |
 | `requirements.txt` | Python 의존성 (`requests` 만) |
 | `notion_intake_db_schema.md` | Notion DB 스키마 정의 |
-| `GRS_Prompt_v15.0.md` | v14.5 → v15.0 수정된 Routine 프롬프트 |
+| `GRM_Prompt_v15.0.md` | v14.5 → v15.0 수정된 Routine 프롬프트 |
 | `.env.example` | 로컬 dry-run 용 환경변수 예시 |
 
 ## ✓ 셋업 진행 상황
@@ -18,14 +18,14 @@ Federal Register + OpenFDA Drug Enforcement API 를 매주 1회 호출해 Notion
 | 단계 | 상태 | 비고 |
 |---|---|---|
 | 1. Notion Integration 토큰 발급 | ⚠️ 사용자 작업 | 채팅에 노출된 `ntn_…` 토큰은 반드시 폐기·재발급 |
-| 2. Notion "GRS API Intake" DB 생성 | ✓ 완료 | DB ID `7784c71fb7b343749b2bee5d04db7926` |
-| 3. Integration 을 부모 페이지에 연결 | ⚠️ 사용자 작업 | `Global Regulatory Sweep` 부모 페이지에 추가 |
+| 2. Notion "GRM API Intake" DB 생성 | ✓ 완료 | DB ID `7784c71fb7b343749b2bee5d04db7926` |
+| 3. Integration 을 부모 페이지에 연결 | ⚠️ 사용자 작업 | `Global Regulatory Monitor` 부모 페이지에 추가 |
 | 4. OpenFDA API key 발급 | ⚠️ 사용자 작업 | 선택 (무료, 권장) |
 | 5. GitHub 저장소 생성 + 파일 push | ⚠️ 사용자 작업 | 공개 권장 |
 | 6. GitHub Secrets 등록 | ⚠️ 사용자 작업 | 3개 (`NOTION_TOKEN`, `NOTION_DATABASE_ID`, `OPENFDA_API_KEY`) |
 | 7. 수동 dry-run | ⚠️ 사용자 작업 | Actions → workflow_dispatch → `dry_run: true` |
 | 8. 실제 적재 첫 실행 | ⚠️ 사용자 작업 | dry_run: false |
-| 9. Routine 프롬프트 v15.0 으로 교체 | ⚠️ 사용자 작업 | `GRS_Prompt_v15.0.md` 의 B 섹션 코드블록 |
+| 9. Routine 프롬프트 v15.0 으로 교체 | ⚠️ 사용자 작업 | `GRM_Prompt_v15.0.md` 의 B 섹션 코드블록 |
 
 ## 셋업 절차
 
@@ -35,25 +35,25 @@ Federal Register + OpenFDA Drug Enforcement API 를 매주 1회 호출해 Notion
 
 1. <https://www.notion.so/profile/integrations> 접속
 2. 해당 Integration 클릭 → `Secrets` 탭 → `Rotate` 버튼 → 기존 토큰 무효화 + 새 토큰 발급
-3. 또는 새 Integration 생성: `+ New integration` → 이름 `GRS Intake Collector`, 타입 `Internal`
+3. 또는 새 Integration 생성: `+ New integration` → 이름 `GRM Intake Collector`, 타입 `Internal`
 4. 권한은 `Read content` + `Insert content` + `Update content` 만 허용
 5. 토큰 (`ntn_…` 또는 `secret_…`) 복사 — **다시는 평문으로 어디에도 붙여넣지 말 것. GitHub Secrets 만 사용.**
 
-### 2. ✓ Notion "GRS API Intake" 데이터베이스 — 이미 생성됨
+### 2. ✓ Notion "GRM API Intake" 데이터베이스 — 이미 생성됨
 
 | 항목 | 값 |
 |---|---|
 | URL | <https://www.notion.so/7784c71fb7b343749b2bee5d04db7926> |
 | Database ID | `7784c71fb7b343749b2bee5d04db7926` |
-| 부모 페이지 | `Global Regulatory Sweep` |
+| 부모 페이지 | `Global Regulatory Monitor` |
 
 `notion_intake_db_schema.md` 참조. 16개 속성 + 모든 select 옵션 사전 등록 완료.
 
 ### 3. Integration 을 부모 페이지에 연결
 
-1. Notion 에서 `Global Regulatory Sweep` 부모 페이지 열기
+1. Notion 에서 `Global Regulatory Monitor` 부모 페이지 열기
 2. 우상단 `…` → `Connections` → 1단계에서 발급한 Integration 추가
-3. 자식 `GRS API Intake` 와 기존 `🌐 Global Regulatory Sweep` 다이제스트 DB 모두 자동으로 접근 허용됨
+3. 자식 `GRM API Intake` 와 기존 `🌐 GRM Weekly Brief` 다이제스트 DB 모두 자동으로 접근 허용됨
 
 ### 4. OpenFDA API key 발급 (무료, 권장)
 
@@ -85,7 +85,7 @@ git push -u origin main
 
 ### 7. 첫 실행 (수동 테스트)
 
-저장소 → `Actions` 탭 → `GRS API Intake (Weekly)` → `Run workflow` → `dry_run: true` 로 한 번 실행.
+저장소 → `Actions` 탭 → `GRM API Intake (Weekly)` → `Run workflow` → `dry_run: true` 로 한 번 실행.
 
 성공하면 Job Summary 에 fetched / inserted 건수가 보입니다. 그 다음 `dry_run: false` 로 실제 적재.
 
@@ -123,7 +123,7 @@ python collect_intake.py --dry-run
 ## 트러블슈팅
 
 ### Notion 401 / unauthorized
-- Integration 이 `Global Regulatory Sweep` 부모 페이지에 연결돼 있는지 확인 (`Connections` 메뉴)
+- Integration 이 `Global Regulatory Monitor` 부모 페이지에 연결돼 있는지 확인 (`Connections` 메뉴)
 - 토큰이 다른 Integration 의 것이 아닌지 확인
 
 ### Notion 400 / validation_error
@@ -140,9 +140,9 @@ python collect_intake.py --dry-run
 
 ## v15.0 Routine 연동
 
-`GRS_Prompt_v15.0.md` 의 `[0단계 — Notion Intake 읽기]` 섹션이 이 수집기 출력을 어떻게 소비하는지 정의합니다. 핵심:
+`GRM_Prompt_v15.0.md` 의 `[0단계 — Notion Intake 읽기]` 섹션이 이 수집기 출력을 어떻게 소비하는지 정의합니다. 핵심:
 
-1. Routine 시작 시 Notion MCP 로 `GRS API Intake` (`7784c71fb7b343749b2bee5d04db7926`) 를 `Run Date (KST) = 오늘` 필터로 조회
+1. Routine 시작 시 Notion MCP 로 `GRM API Intake` (`7784c71fb7b343749b2bee5d04db7926`) 를 `Run Date (KST) = 오늘` 필터로 조회
 2. row 가 있으면 FR · Recall 전수 목록 확보 → Evidence A 부여
 3. row 가 0건이면 v14.5 WebSearch-only 모드로 fallback
 

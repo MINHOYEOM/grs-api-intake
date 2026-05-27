@@ -1,4 +1,4 @@
-# GRS Routine Prompt — v15.0 (Intake-first cloud routine)
+# GRM Routine Prompt — v15.0 (Intake-first cloud routine)
 
 > v14.5 대비 변경 사항만 본 문서 상단에 정리하고, 이어서 새 채팅에 그대로 붙여넣을 **v15.0 완성 프롬프트** 본문을 제공합니다. 변경되지 않은 v14.5 섹션은 그대로 유지됩니다.
 
@@ -41,7 +41,7 @@
 6. 운영 모델 (v15.0 — Intake-first cloud routine):
    외부 GitHub Actions 수집기가 매주 일요일 20:17 UTC (월요일 05:17 KST) 에
    Federal Register API + OpenFDA Drug Enforcement API 를 호출해 결과를
-   Notion "GRS API Intake" 데이터베이스에 raw 필드로 적재한다.
+   Notion "GRM API Intake" 데이터베이스에 raw 필드로 적재한다.
    Routine 은 매주 월요일 07:30 KST 에 Notion Intake 를 0단계에서 읽고,
    이어서 v14.5 와 동일한 WebSearch · WebFetch 단계를 수행해 병합·중복 제거한다.
    Intake row 가 0건이면 Routine 은 v14.5 WebSearch-only 모드로 graceful degradation 한다.
@@ -111,7 +111,7 @@
 - M3에 한 줄 추가: "TZ: Asia/Seoul 기준 산정 (UTC 아님)".
 
 [0단계 — Notion Intake 읽기 (v15.0 신규)]
-Routine 시작 시 가장 먼저 Notion "GRS API Intake" 데이터베이스를 조회한다.
+Routine 시작 시 가장 먼저 Notion "GRM API Intake" 데이터베이스를 조회한다.
 
 DB ID: 7784c71fb7b343749b2bee5d04db7926
 DB URL: https://www.notion.so/7784c71fb7b343749b2bee5d04db7926
@@ -548,7 +548,7 @@ Tier 2/3 분류에 필요한 route · dosage_form 은 다음 순서로 확인한
 [Notion 페이지 출력 — v15.0 갱신]
 페이지 메타:
 - 아이콘: [페이지 icon — 자동 매핑] 적용
-- 제목: "Global regulatory sweep — YYYY-MM-DD (요일)"
+- 제목: "GRM Weekly Brief — YYYY-MM-DD (요일)"
 - DB 속성:
   · 검색 기간: "MM-DD ~ MM-DD" (text)
   · 출처 기관: multi-select
@@ -638,7 +638,7 @@ Tier 2/3 분류에 필요한 route · dosage_form 은 다음 순서로 확인한
 "WebSearch 횟수: {N}회 / 한도 9회 (Core {N} + Deep Dive Search {N})"
 "WebSearch fallback 적용 슬롯: {슬롯 번호 · 적용 단계}"
 "WebFetch 횟수: {N}개 / 한도 5개 (접근 성공 {N} / 실패 {N} / 유효항목 {M})"
-"Intake 읽기 — 실행일(KST) 필터: Run Date={YYYY-MM-DD} · 조회 결과 {N}건 (FR {N} · Recall {N}) · Notion DB `GRS API Intake` (ID 7784c71fb7b343749b2bee5d04db7926)"
+"Intake 읽기 — 실행일(KST) 필터: Run Date={YYYY-MM-DD} · 조회 결과 {N}건 (FR {N} · Recall {N}) · Notion DB `GRM API Intake` (ID 7784c71fb7b343749b2bee5d04db7926)"
 "공식 API 호출: 외부 수집기 위임 (Routine 직접 호출 없음 — GitHub Actions 일요일 20:17 UTC / 월요일 05:17 KST)"
 "TGA 임시 가중치: Core 8 슬롯 (실사 임박, 종료 후 Deep Dive로 이동 예정)"
 "API-WebSearch 불일치: {기록 또는 '없음'}"
@@ -648,7 +648,7 @@ Tier 2/3 분류에 필요한 route · dosage_form 은 다음 순서로 확인한
    · 양쪽에서 동일 발견 → "Intake-WebSearch 일치 (FR {N}건 cross-confirmed)"
    · 불일치 없음 → "Intake-WebSearch 불일치: 없음"
 "공식 원본 링크 분포: L1 {N}건 · L2 {N}건 · L3 {N}건"
-"생성: Claude (Anthropic) / Automated Routine v15.0 Intake-first cloud mode"
+"생성: Claude (Anthropic) / GRM Automated Routine v15.0 Intake-first cloud mode"
 "※ '참고/시사점' 영역은 AI 작성. 공식 견해·판단·책임 없음. 원문 링크로 사용자 직접 검증."
 
 [톤 가드레일 — '시사점' 영역]
@@ -656,7 +656,7 @@ Tier 2/3 분류에 필요한 route · dosage_form 은 다음 순서로 확인한
 (v14.4.1 와 동일)
 
 [발송]
-Notion DB "Global Regulatory Sweep" (ID: 3653142f-dc11-8049-806d-e0a779cafd90)
+Notion DB "🌐 GRM Weekly Brief" (ID: 3653142f-dc11-8049-806d-e0a779cafd90)
 에 새 페이지 생성.
 ```
 
@@ -666,8 +666,8 @@ Notion DB "Global Regulatory Sweep" (ID: 3653142f-dc11-8049-806d-e0a779cafd90)
 
 ### Intake 가 매주 정상 들어오는지 확인하는 방법
 
-1. Notion `GRS API Intake` DB 를 `Run Date (KST)` 내림차순 정렬 → 가장 위 row 의 날짜가 이번 월요일과 일치
-2. 또는 GitHub 저장소 → Actions → 가장 최근 `GRS API Intake (Weekly)` run 의 Job Summary 확인
+1. Notion `GRM API Intake` DB 를 `Run Date (KST)` 내림차순 정렬 → 가장 위 row 의 날짜가 이번 월요일과 일치
+2. 또는 GitHub 저장소 → Actions → 가장 최근 `GRM API Intake (Weekly)` run 의 Job Summary 확인
 
 ### Intake row 가 0건일 때 점검 순서
 

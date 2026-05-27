@@ -1,4 +1,4 @@
-# GRS API Intake — Notion Database 스키마
+# GRM API Intake — Notion Database 스키마
 
 이 문서는 GitHub Actions 수집기가 데이터를 기록하고, Claude Code Routine v15.0이 읽어가는 **Intake staging DB** 의 속성 구조를 정의한다.
 
@@ -6,17 +6,17 @@
 
 | 항목 | 값 |
 |---|---|
-| Database 이름 | `GRS API Intake` |
+| Database 이름 | `GRM API Intake` |
 | Database URL | <https://www.notion.so/7784c71fb7b343749b2bee5d04db7926> |
 | **Database ID** | `7784c71fb7b343749b2bee5d04db7926` |
-| 부모 페이지 | `Global Regulatory Sweep` (기존 다이제스트 DB 와 같은 부모) |
+| 부모 페이지 | `Global Regulatory Monitor` (기존 다이제스트 DB 와 같은 부모) |
 | Data Source ID | `d5b9634a-2bd7-4036-ba06-e4ad17ede288` |
 
 **남은 셋업 단계 (사용자 작업)**
 
-1. Notion → Settings → Integrations → `New integration` → 이름 자유 (예: `GRS Intake Collector`), Internal 타입
+1. Notion → Settings → Integrations → `New integration` → 이름 자유 (예: `GRM Intake Collector`), Internal 타입
 2. 발급받은 토큰을 GitHub Secrets `NOTION_TOKEN` 에 등록 (이 채팅에 노출된 `ntn_…` 토큰은 반드시 `Rotate token` 으로 폐기 후 새 토큰 발급)
-3. Integration → `Access` 탭 → 부모 페이지 `Global Regulatory Sweep` 추가 (자식 `GRS API Intake` 자동 상속)
+3. Integration → `Access` 탭 → 부모 페이지 `Global Regulatory Monitor` 추가 (자식 `GRM API Intake` 자동 상속)
 4. 위 Database ID `7784c71fb7b343749b2bee5d04db7926` 를 GitHub Secrets `NOTION_DATABASE_ID` 에 등록
 
 ## 속성 정의
@@ -109,6 +109,6 @@ Status: any of [New, Processed]
 다른 워크스페이스로 옮길 때 등:
 
 1. Notion에서 새 페이지 → `/Database - Full page` 선택
-2. 이름: `GRS API Intake`
+2. 이름: `GRM API Intake`
 3. 위 속성표 그대로 추가 (이름 · 타입 정확히)
 4. Integration 을 부모 페이지에 연결

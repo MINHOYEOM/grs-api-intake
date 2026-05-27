@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-GRS API Intake Collector — v15.1 Phase 2
+GRM API Intake Collector — v15.1 Phase 2
 
 Federal Register API + OpenFDA Drug Enforcement API + RSS 피드 (EMA · MHRA · PIC/S · ECA)
 + FDA Warning Letters 를 호출해 지난 7일 (KST 기준) 항목을 수집하고,
-Notion "GRS API Intake" 데이터베이스에 raw 필드를 저장한다.
+Notion "GRM API Intake" 데이터베이스에 raw 필드를 저장한다.
 
 설계 원칙:
 1. KST 기준 7일 윈도우 — 모든 날짜는 Asia/Seoul 로 계산
@@ -17,7 +17,7 @@ Notion "GRS API Intake" 데이터베이스에 raw 필드를 저장한다.
 
 환경 변수 (GitHub Secrets):
 - NOTION_TOKEN       : Notion Integration token (secret_…)
-- NOTION_DATABASE_ID : "GRS API Intake" DB ID
+- NOTION_DATABASE_ID : "GRM API Intake" DB ID
 - OPENFDA_API_KEY    : OpenFDA 무료 API key (선택, 없으면 no-key 사용)
 
 CLI 옵션:
@@ -359,7 +359,7 @@ def http_get_json(url: str, *, params: dict[str, Any] | None = None,
     for attempt in range(retries + 1):
         try:
             resp = requests.get(url, params=params, timeout=timeout,
-                                headers={"User-Agent": "GRS-Intake/1.0 (+github-actions)"})
+                                headers={"User-Agent": "GRM-Intake/1.0 (+github-actions)"})
             if 400 <= resp.status_code < 500:
                 # 4xx 는 재시도해도 동일 결과 — 즉시 HTTPClientError 발생
                 raise HTTPClientError(resp.status_code, url,
@@ -381,7 +381,7 @@ def http_get_json(url: str, *, params: dict[str, Any] | None = None,
 # ─────────────────────────────────────────────────────────────────────────────
 
 _RSS_HEADERS = {
-    "User-Agent": "GRS-Intake/1.1 (+github-actions)",
+    "User-Agent": "GRM-Intake/1.1 (+github-actions)",
     "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
 }
 
@@ -1213,7 +1213,7 @@ def collect_fda_warning_letters(start: date, end: date) -> tuple[list[IntakeItem
     log("INFO", f"FDA WL 수집: {FDA_WL_URL}")
     try:
         resp = requests.get(FDA_WL_URL, timeout=30, headers={
-            "User-Agent": "GRS-Intake/1.1 (+github-actions)",
+            "User-Agent": "GRM-Intake/1.1 (+github-actions)",
             "Accept": "text/html",
         })
         if resp.status_code == 403:
@@ -1585,7 +1585,7 @@ _ALL_SOURCES = ["fr", "recall", "ema", "mhra", "pics", "eca", "wl"]
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="GRS API Intake Collector v15.1")
+    parser = argparse.ArgumentParser(description="GRM API Intake Collector v15.1")
     parser.add_argument("--dry-run", action="store_true",
                         help="Notion 호출 없이 stdout 만 출력")
     parser.add_argument("--window-days", type=int, default=7,
@@ -1749,7 +1749,7 @@ def main() -> int:
     if summary_path:
         try:
             with open(summary_path, "a", encoding="utf-8") as f:
-                f.write("## GRS Intake Collection Summary\n\n")
+                f.write("## GRM Intake Collection Summary\n\n")
                 f.write(f"- Run date (KST): `{run_date.isoformat()}`\n")
                 f.write(f"- Window: `{start.isoformat()}` ~ `{end.isoformat()}`\n")
                 def _src_line(label: str, fetched: int, inserted: int,
