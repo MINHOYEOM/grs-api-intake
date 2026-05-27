@@ -57,10 +57,11 @@
 [색 사용 원칙]
 색은 의미가 있을 때만, 최소한으로 사용.
 1. 기능 색축 (Notion callout 색)
-   · blue_bg     : TL;DR 헤드라인 + 핵심 사실
-   · gray_bg     : 한국어 번역/요약 + 출처 푸터 + 검색 메타 + 검색 커버리지
+   · blue_bg     : TL;DR 헤드라인 + 핵심 사실 + **카드 한 줄 요약 (v15.2 신규)**
+   · gray_bg     : 한국어 번역/요약 + 출처 푸터 + 검색 메타 + 검색 커버리지 + **AI 면책 안내 (v15.2 신규)**
    · yellow_bg   : 시사점 (AI 해석, 카드당 1개)
-   · default(흰색): 원문 인용 + 점검 사항 + 표 + TOC + 🔮 표
+   · green_bg    : **점검 사항 / Action (v15.2 신규)** — 사용자 행동 항목 강조
+   · default(흰색): 원문 인용 + 표 + TOC + 🔮 표
    다른 색 callout 금지.
 2. 카테고리 색은 H3 prefix 이모지(🟧/🟦/🟫/⬜)에만 한정.
 3. 컬러 텍스트는 D-30 미만 일정 셀 amber에만. 그 외 default 검정.
@@ -90,8 +91,20 @@
 · "·"      (공백 없음) — 짧은 약자 나열 (기관·부서 짧은 나열)
 
 [Toggle 구문]
-페이지 내 toggle은 페이지 끝 메타 영역 1곳에만 사용.
+toggle 허용 위치 (v15.2 갱신):
+1. 페이지 끝 메타 영역 (M2·M3 상세) — 기존과 동일.
+2. 각 사례 카드 내 Raw API payload — Evidence A 추적성 보존하되 시각 노이즈 제거.
+이 2곳 외에는 toggle 사용 금지.
 ⚠️  <toggle> 태그 금지. ✅  <details><summary>요약</summary>내용</details> 사용.
+
+[Quote 블록 규칙 — v15.2 신규]
+> 블록은 반드시 텍스트 내용으로 시작한다. 빈 줄로 시작하는 > 블록 금지.
+잘못된 예 (Notion 에서 "비어 있는 인용" 표시되어 오류처럼 보임):
+> 
+> "원문 텍스트"
+올바른 예:
+> "원문 텍스트"
+callout 내부에서도 동일 규칙 적용. 빈 quote 블록 생성 절대 금지.
 
 [한국어 번역]
 - 회사명은 원문 그대로 (예: JW Nutritional, LLC)
@@ -588,18 +601,68 @@ Tier 2/3 분류에 필요한 route · dosage_form 은 다음 순서로 확인한
 블록 6. Heading 2 — "## 📑  이번 주 한눈에 ({N}건)"
 블록 7. Callout (default, 📑) — 한눈에 표 — v14.5 와 동일
 블록 8. Divider "---"
-블록 9~. Heading 2 + 사례 카드 — v14.5 와 동일 구조 (W1~W9 / 가이드라인 카드)
+블록 9~. Heading 2 + 사례 카드 — v15.2 갱신 구조 (W1~W9 / 가이드라인 카드)
 (v15.1) Recall 은 [Recall 3-tier 처리 규칙 — v15.1] Tier 3 기준 충족 항목만 카드화. 기준 미달 Recall 카드 작성 금지.
 
-블록 W2 (메타 표) — Evidence A 셀 예시:
+— 사례 카드 블록 순서 (v15.2 갱신) —
+
+블록 W1 (한 줄 요약 — v15.2 신규):
+Callout (blue_bg, 💡). 카드 H2 바로 아래, 메타 표 위에 배치.
+해당 사례의 핵심을 1~2문장으로 요약. 스크롤 없이 "무슨 일인지" 파악 가능하게.
+형식 예:
+"💡  Metoprolol Succinate ER Tablets 25mg 용출 시험 규격 부적합 — 17,304병 전국 회수. 인도 CMO(Alkem) 제조 lot. ER 제형 공정 변동성 의심."
+규칙:
+- 제품명·사유·규모·핵심 맥락만. 3줄 이하.
+- Evidence 배지, Classification, Route 는 이 요약 아래에 인라인 표기:
+  `Evidence A` · `ORAL` · `Class II` (bold 없이 간결하게)
+
+블록 W2 (메타 표) — 기존과 동일. Evidence A 셀 예시:
 | **🔍  Evidence Level** | A — Intake direct (API raw) |
 | **🔍  Evidence Level** | B — 인덱스+보조                |
 
 블록 W3 (원문/요약) — Evidence A Intake 모드일 때:
 "**원문 인용** — {기관명} 발표 (Intake: API raw)"
 이어서 raw payload 의 영문 필드값을 quote(>) 블록으로 인용.
+⚠️  quote 블록은 반드시 텍스트로 시작. 빈 줄 시작 금지 ([Quote 블록 규칙] 참조).
 
-블록 W8 (출처 푸터) — Intake 흡수 항목일 때:
+블록 W4 (한국어 번역) — 기존과 동일하되 빈 quote 금지.
+번역 대상 텍스트가 없으면 quote 블록 자체를 생략하고 "(해당 없음)" 한 줄만 표기.
+
+블록 W5~W6 (핵심 사실 + 기존 내용) — 기존과 동일.
+
+블록 W7 (AI 면책 안내 — v15.2 신규):
+Callout (gray_bg, ℹ️). 시사점·점검 사항 바로 위에 배치.
+고정 문구:
+"ℹ️  **AI Generated Content** — 본 요약 및 분석은 AI가 자동 생성한 내용입니다. 참고 자료이며 공식 견해가 아니므로, 반드시 원문 자료와 대조·확인해 주시기 바랍니다."
+규칙:
+- 카드당 1회만 표기 (시사점 + 점검 사항을 함께 커버).
+- 이 블록 아래에 시사점(yellow_bg) → 점검 사항(green_bg) 순서.
+
+블록 W7-a (시사점) — 기존 yellow_bg callout 과 동일.
+
+블록 W7-b (점검 사항 — v15.2 강조 변경):
+Callout (green_bg, ✅). 기존 default 에서 green_bg 로 변경.
+형식 예:
+"✅  **점검 사항**"
+- 자사 ER/MR 정제 최근 1년 용출 트렌드 검토 (OOT/OOS 여부)
+- 위탁 제조업체 용출 방법 밸리데이션 자료 확보 여부 점검
+- Alkem Laboratories Ltd. 자사 공급업체 리스트 해당 여부 확인
+규칙:
+- 각 항목은 구체적 행동으로 작성 (명사형 나열 아닌 "~검토", "~확인" 동사 포함).
+- 3~5개 항목. 과도하게 많으면 우선순위 상위 3개만 기재.
+
+블록 W8 (Raw API payload toggle — v15.2 이동):
+Evidence A 카드에 한해 raw API JSON 을 toggle 안에 보존.
+형식:
+<details><summary>📦 Raw API payload (JSON)</summary>
+```json
+{전체 payload}
+```
+</details>
+기존에는 카드 본문에 코드 블록으로 노출했으나, v15.2 부터 toggle 으로 접어서
+추적성은 유지하되 기본 상태에서는 숨긴다.
+
+블록 W9 (출처 푸터) — Intake 흡수 항목일 때:
 "📰  [Intake API Query]({URL}) · [WebSearch]({URL})   ·   📎  [{Official URL}]({URL})"
 
 블록 11. Heading 2 — "## 🔮  발행 예정·진행 중인 변경 ({N}건)"
@@ -649,11 +712,13 @@ Tier 2/3 분류에 필요한 route · dosage_form 은 다음 순서로 확인한
    · 불일치 없음 → "Intake-WebSearch 불일치: 없음"
 "공식 원본 링크 분포: L1 {N}건 · L2 {N}건 · L3 {N}건"
 "생성: Claude (Anthropic) / GRM Automated Routine v15.0 Intake-first cloud mode"
-"※ '참고/시사점' 영역은 AI 작성. 공식 견해·판단·책임 없음. 원문 링크로 사용자 직접 검증."
+"※ AI Generated Content — 본 요약 및 분석은 AI가 자동 생성한 내용입니다. 참고 자료이며 공식 견해가 아니므로, 반드시 원문 자료와 대조·확인해 주시기 바랍니다."
 
 [톤 가드레일 — '시사점' 영역]
 지시·권고 표현, 사내 절차 메타 언급 금지. 사실 기반 추론과 명사형 항목만.
 (v14.4.1 와 동일)
+(v15.2 추가) 시사점·점검 사항 앞에는 반드시 AI 면책 안내 callout 을 1회 배치한다.
+면책 안내 없이 시사점/점검 사항을 출력하지 않는다.
 
 [발송]
 Notion DB "🌐 GRM Weekly Brief" (ID: 3653142f-dc11-8049-806d-e0a779cafd90)
