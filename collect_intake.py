@@ -79,6 +79,7 @@ PROP_COLLECTED_AT = "Collected At"
 PROP_API_QUERY = "API Query"
 PROP_QA_RELEVANCE = "QA Relevance"
 PROP_STATUS = "Status"
+PROP_SIGNAL_TIER = "Signal Tier"
 
 SOURCE_FR = "Federal Register"
 SOURCE_RECALL = "OpenFDA Recall"
@@ -179,6 +180,21 @@ QA_EXCLUDE_KEYWORDS = [
 # 13 개 카테고리 통과를 위한 최소 매칭 키워드 수
 QA_MIN_MATCH = 1
 
+# Signal Tier 자동 분류 키워드 (lowercase, 단어 경계 매칭 — _kw_match 사용)
+# Tier 3 = 최고 신호 (CGMP 강제조치 · nitrosamine · 핵심 ICH), Tier 2 = 일반 GMP/품질 신호
+SIGNAL_TIER3_KEYWORDS = [
+    "cgmp", "current good manufacturing practice",
+    "warning letter", "consent decree", "import alert",
+    "annex 1", "ich q12", "ich q13",
+    "nitrosamine", "ndma", "ndea", "n-nitroso",
+]
+SIGNAL_TIER2_KEYWORDS = [
+    "gmp", "manufacturing practice", "data integrity", "alcoa",
+    "process validation", "cleaning validation", "dissolution",
+    "out of specification", "oos", "stability", "capa", "deviation",
+    "sterile", "aseptic", "supplier qualification", "recall", "class ii",
+]
+
 # OSD (경구 고형제) Relevance 분류 기준 (v15.1 추가)
 PROP_OSD_RELEVANCE = "OSD Relevance"   # Notion select: Direct / Indirect / N/A
 OSD_ROUTES = {"oral"}
@@ -217,6 +233,7 @@ class IntakeItem:
     qa_relevance: str = "Pending"
     osd_relevance: str = "N/A"   # "Direct" | "Indirect" | "N/A" — Recall 전용, 기타 N/A
     source_type: str = SRC_TYPE_OFFICIAL_API  # Source Type 분류 (v15.1)
+    signal_tier: str = "Tier 1"  # "Tier 1" | "Tier 2" | "Tier 3" — compute_signal_tier 자동 분류
     raw_payload: dict[str, Any] = field(default_factory=dict)
 
 
@@ -636,6 +653,65 @@ def compute_osd_relevance(raw_payload: dict[str, Any]) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Signal Tier 자동 분류 (v15.x Phase 1)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def compute_signal_tier(source: str, type_or_class: str, qa_relevance: str,
+                        osd_relevance: str, *text_parts: str) -> str:
+    """수집 항목의 Signal Tier (Tier 1/2/3) 1차 자동 분류.
+
+    최종 판정은 Routine 에 위임하되, 고신호 항목을 우선 노출하기 위한 휴리스틱.
+        Tier 3 — 즉시 검토 가치가 높은 강제조치/핵심 GMP 신호
+        Tier 2 — GMP/품질 관련 신호
+        Tier 1 — 기본 (기타)
+
+    인자:
+        source         : SOURCE_* 상수
+        type_or_class  : Recall classification("Class I"…) / FR type("Rule"…) / 카테고리
+        qa_relevance   : compute_relevance 결과 ("Likely" 등)
+        osd_relevance  : compute_osd_relevance 결과 ("Direct" 등)
+        text_parts     : 키워드 매칭 대상 텍스트 (제목·본문·카테고리 등)
+    """
+    blob = " ".join(t for t in text_parts if t).lower()
+    type_lc = (type_or_class or "").lower()
+
+    # Recall classification — 단어 경계로 Class I / II / III 정확히 구분
+    is_class_i = source == SOURCE_RECALL and re.search(r"\bclass i\b", type_lc) is not None
+    is_class_ii = source == SOURCE_RECALL and re.search(r"\bclass ii\b", type_lc) is not None
+    is_fr_rule = source == SOURCE_FR and "rule" in type_lc
+
+    t3_matches = _kw_match(blob, SIGNAL_TIER3_KEYWORDS)
+    t2_matches = _kw_match(blob, SIGNAL_TIER2_KEYWORDS)
+
+    # ── Tier 3 ─────────────────────────────────────────────────────────────
+    if source == SOURCE_FDA_WL and _kw_any(
+            blob, ["cgmp", "current good manufacturing practice"]):
+        return "Tier 3"
+    if is_class_i:
+        return "Tier 3"
+    if osd_relevance == "Direct" and _kw_any(
+            blob, ["dissolution", "nitrosamine", "subpotent"]):
+        return "Tier 3"
+    if t3_matches >= 2:
+        return "Tier 3"
+    if is_fr_rule and t3_matches >= 1:
+        return "Tier 3"
+
+    # ── Tier 2 ─────────────────────────────────────────────────────────────
+    if qa_relevance == "Likely":
+        return "Tier 2"
+    if is_class_ii:
+        return "Tier 2"
+    if t2_matches >= 1:
+        return "Tier 2"
+    if osd_relevance == "Direct":
+        return "Tier 2"
+
+    return "Tier 1"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 날짜 유틸
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -710,6 +786,8 @@ def _fr_to_item(r: dict[str, Any], api_query_url: str) -> IntakeItem:
                                     context=f"FR/{doc_id}/comments_close")
 
     relevance = compute_relevance(title, abstract, doc_type)
+    tier = compute_signal_tier(SOURCE_FR, doc_type, relevance, "N/A",
+                               title, abstract, doc_type)
 
     return IntakeItem(
         source=SOURCE_FR,
@@ -724,6 +802,7 @@ def _fr_to_item(r: dict[str, Any], api_query_url: str) -> IntakeItem:
         qa_relevance=relevance,
         # FR 항목은 OSD Relevance 분류 대상 아님
         osd_relevance="N/A",
+        signal_tier=tier,
         raw_payload=r,
     )
 
@@ -802,6 +881,8 @@ def _recall_to_item(r: dict[str, Any], api_query_url: str) -> IntakeItem:
     headline = product or firm or recall_number
     relevance = compute_relevance(product, reason, firm, distribution, product_type)
     osd_rel = compute_osd_relevance(r)
+    tier = compute_signal_tier(SOURCE_RECALL, classification, relevance, osd_rel,
+                               product, reason, firm, distribution, product_type)
 
     return IntakeItem(
         source=SOURCE_RECALL,
@@ -816,6 +897,7 @@ def _recall_to_item(r: dict[str, Any], api_query_url: str) -> IntakeItem:
         api_query=api_query_url,
         qa_relevance=relevance,
         osd_relevance=osd_rel,
+        signal_tier=tier,
         raw_payload=r,
     )
 
@@ -876,6 +958,8 @@ def collect_ema_rss(start: date, end: date) -> tuple[list[IntakeItem], str | Non
 
             doc_id = _stable_doc_id(SOURCE_EMA, title, link, date_iso)
             relevance = compute_relevance(title, description, category)
+            tier = compute_signal_tier(SOURCE_EMA, category or feed_name, relevance,
+                                       "N/A", title, description, category)
 
             items.append(IntakeItem(
                 source=SOURCE_EMA,
@@ -889,6 +973,7 @@ def collect_ema_rss(start: date, end: date) -> tuple[list[IntakeItem], str | Non
                 qa_relevance=relevance,
                 osd_relevance="N/A",
                 source_type=SRC_TYPE_OFFICIAL_API,
+                signal_tier=tier,
                 raw_payload={
                     "feed": feed_name,
                     "title": title,
@@ -953,6 +1038,8 @@ def collect_mhra_rss(start: date, end: date) -> tuple[list[IntakeItem], str | No
 
         doc_id    = _stable_doc_id(SOURCE_MHRA, title, link, date_iso)
         relevance = compute_relevance(title, summary, category)
+        tier      = compute_signal_tier(SOURCE_MHRA, category or "Blog", relevance,
+                                        "N/A", title, summary, category)
 
         items.append(IntakeItem(
             source=SOURCE_MHRA,
@@ -966,6 +1053,7 @@ def collect_mhra_rss(start: date, end: date) -> tuple[list[IntakeItem], str | No
             qa_relevance=relevance,
             osd_relevance="N/A",
             source_type=SRC_TYPE_OFFICIAL_BLOG,
+            signal_tier=tier,
             raw_payload={
                 "title": title, "link": link,
                 "published": pub_raw, "summary": summary,
@@ -1012,6 +1100,8 @@ def collect_pics_rss(start: date, end: date) -> tuple[list[IntakeItem], str | No
 
         doc_id    = _stable_doc_id(SOURCE_PICS, title, link, date_iso)
         relevance = compute_relevance(title, description)
+        tier      = compute_signal_tier(SOURCE_PICS, "PIC/S", relevance,
+                                        "N/A", title, description)
 
         items.append(IntakeItem(
             source=SOURCE_PICS,
@@ -1025,6 +1115,7 @@ def collect_pics_rss(start: date, end: date) -> tuple[list[IntakeItem], str | No
             qa_relevance=relevance,
             osd_relevance="N/A",
             source_type=SRC_TYPE_OFFICIAL_PAGE,
+            signal_tier=tier,
             raw_payload={
                 "title": title, "link": link,
                 "pubDate": pub_raw, "description": description, "guid": guid,
@@ -1096,6 +1187,8 @@ def collect_eca_rss(start: date, end: date) -> tuple[list[IntakeItem], str | Non
 
         doc_id    = _stable_doc_id(SOURCE_ECA, title, link, date_iso)
         relevance = compute_relevance(title, description)
+        tier      = compute_signal_tier(SOURCE_ECA, "GMP News", relevance,
+                                        "N/A", title, description)
 
         items.append(IntakeItem(
             source=SOURCE_ECA,
@@ -1109,6 +1202,7 @@ def collect_eca_rss(start: date, end: date) -> tuple[list[IntakeItem], str | Non
             qa_relevance=relevance,
             osd_relevance="N/A",
             source_type=SRC_TYPE_EXPERT_SECONDARY,
+            signal_tier=tier,
             raw_payload={
                 "title": title, "link": link,
                 "pubDate": pub_raw, "description": description, "guid": guid,
@@ -1273,6 +1367,8 @@ def collect_fda_warning_letters(start: date, end: date) -> tuple[list[IntakeItem
         headline = subject or firm or "FDA Warning Letter"
         doc_id = _stable_doc_id(SOURCE_FDA_WL, firm, wl_href or FDA_WL_URL, date_iso)
         relevance = compute_relevance(headline, subject, issuing_office)
+        tier = compute_signal_tier(SOURCE_FDA_WL, issuing_office or "Warning Letter",
+                                   relevance, "N/A", headline, subject, issuing_office)
 
         items.append(IntakeItem(
             source=SOURCE_FDA_WL,
@@ -1287,6 +1383,7 @@ def collect_fda_warning_letters(start: date, end: date) -> tuple[list[IntakeItem
             qa_relevance=relevance,
             osd_relevance="N/A",
             source_type=SRC_TYPE_OFFICIAL_PAGE,
+            signal_tier=tier,
             raw_payload={
                 "firm": firm, "posted_date": posted_raw,
                 "letter_date": letter_date_raw,
@@ -1317,8 +1414,12 @@ class NotionDedupeQueryError(RuntimeError):
     pass
 
 
-def notion_query_existing_doc_ids(token: str, db_id: str, run_date: date) -> set[str]:
-    """오늘(KST) Run Date 와 일치하는 row 의 'source::document_id' key set 반환.
+def notion_query_existing_doc_ids(token: str, db_id: str, run_date: date,
+                                  window_days: int = 7) -> set[str]:
+    """최근 window_days 일(KST Run Date 기준) row 의 'source::document_id' key set 반환.
+
+    daily 수집 전환(Phase 1)으로 dedupe 윈도우를 '당일' → '최근 window_days 일'로 확장.
+    동일 항목이 윈도우 내 여러 daily run 에서 재삽입되는 것을 방지한다.
 
     dedupe key 형식: "{SOURCE_FR}::{doc_id}" 또는 "{SOURCE_RECALL}::{doc_id}"
     Source 를 포함해 Federal Register 와 OpenFDA Recall 간 ID 충돌을 방지한다.
@@ -1328,16 +1429,23 @@ def notion_query_existing_doc_ids(token: str, db_id: str, run_date: date) -> set
     """
     url = NOTION_DB_QUERY_URL_TPL.format(db_id=db_id)
     existing: set[str] = set()
+    window_start = (run_date - timedelta(days=window_days)).isoformat()
     body: dict[str, Any] = {
         "filter": {
-            "property": PROP_RUN_DATE,
-            "date": {"equals": run_date.isoformat()},
+            "and": [
+                {"property": PROP_RUN_DATE,
+                 "date": {"on_or_after": window_start}},
+                {"property": PROP_RUN_DATE,
+                 "date": {"on_or_before": run_date.isoformat()}},
+            ]
         },
         "page_size": 100,
     }
     start_cursor: str | None = None
+    page_count = 0
     try:
         for _ in range(20):  # 안전 페이지 상한
+            page_count += 1
             if start_cursor:
                 body["start_cursor"] = start_cursor
             elif "start_cursor" in body:
@@ -1357,13 +1465,18 @@ def notion_query_existing_doc_ids(token: str, db_id: str, run_date: date) -> set
             if not data.get("has_more"):
                 break
             start_cursor = data.get("next_cursor")
+        else:
+            # for-else: 20 페이지를 모두 소진했는데 break 되지 않음 = has_more 잔존 = 상한 도달
+            if page_count >= 20:
+                log("WARN", f"Notion dedupe 조회 20페이지 상한 도달 — "
+                            f"일부 기존 row 누락 가능 (existing={len(existing)}건)")
     except requests.RequestException as e:
         # 중복 조회 실패 시 빈 set을 반환하면 모든 item을 신규로 판단해 대량 중복 insert 위험.
         # 안전하게 예외를 던져 caller 가 insert 중단 여부를 결정하도록 한다.
         raise NotionDedupeQueryError(
             f"Notion 중복 조회 실패 (RunDate={run_date}): {e}"
         ) from e
-    log("INFO", f"Notion 기존 row {len(existing)} 건 (RunDate={run_date})")
+    log("INFO", f"Notion 기존 row {len(existing)} 건 (최근 {window_days}일, ~{run_date})")
     return existing
 
 
@@ -1424,6 +1537,7 @@ def build_notion_properties(item: IntakeItem, run_date: date,
         PROP_QA_RELEVANCE: _select(item.qa_relevance),
         PROP_OSD_RELEVANCE: _select(item.osd_relevance),
         PROP_SOURCE_TYPE: _select(item.source_type),
+        PROP_SIGNAL_TIER: _select(item.signal_tier),
         PROP_STATUS: _select("New"),
     }
 
@@ -1690,7 +1804,8 @@ def main() -> int:
         existing: set[str] = set()
     else:
         try:
-            existing = notion_query_existing_doc_ids(notion_token, notion_db, run_date)
+            existing = notion_query_existing_doc_ids(notion_token, notion_db, run_date,
+                                                     window_days=args.window_days)
         except NotionDedupeQueryError as e:
             # 중복 조회 실패 시 빈 set으로 진행하면 대량 중복 insert 위험 → 중단
             log("ERROR", f"중복 조회 실패 — duplicate insert 방지를 위해 insert 단계 중단: {e}")
