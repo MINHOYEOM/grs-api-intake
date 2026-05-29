@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-GRM Brave Search Collector — v1.3 Phase 2a
+GRM Brave Search Collector — v1.4 Phase 2a
 
-Brave Search API로 11개 쿼리 슬롯을 실행해 GRM 관련 규제 신호를 수집하고
+Brave Search API로 10개 쿼리 슬롯을 실행해 GRM 관련 규제 신호를 수집하고
 IntakeItem 리스트로 반환한다.
 
 설계 원칙:
@@ -10,7 +10,7 @@ IntakeItem 리스트로 반환한다.
 2. Evidence Candidate: 공식 규제기관 도메인 → B, 그 외 → C
    A는 Search 결과에서 절대 부여하지 않음 (API raw data만 A 자격)
    D는 Routine 최종 판정 위임
-3. freshness: 기본 pw(7일), 전문 trade press(RAPS/EPR)는 pm(30일) 개별 적용
+3. freshness: 기본 pw(7일), 전문 trade press(RAPS 등)는 pm(31일) 개별 적용
 4. _stable_doc_id(source, url, url, date_iso) URL 기반 dedupe
 5. 본문 fetch / 링크 추적 없음 — snippet + URL만 저장 (Phase 2a 범위 외)
 
@@ -67,7 +67,7 @@ SRC_TYPE_SEARCH_RESULT = "Search Result"
 
 BRAVE_API_URL = "https://api.search.brave.com/res/v1/web/search"
 
-# 쿼리당 최대 결과 수: 11 slots × 5 = 최대 55 rows/run
+# 쿼리당 최대 결과 수: 10 slots × 5 = 최대 50 rows/run
 MAX_RESULTS_PER_QUERY = 5
 
 # Brave Search freshness 파라미터: pw = past week (7일)
@@ -75,10 +75,11 @@ BRAVE_FRESHNESS = "pw"
 
 # 슬롯별 freshness 개별 설정 (미지정 슬롯은 BRAVE_FRESHNESS 기본값 사용)
 # 공식 규제기관 소스: pw (7일 — 발행 빈도 높음)
-# 전문 2차 trade press: pm (30일 — 발행 빈도 낮음, pw 시 항상 0)
+# 전문 2차 trade press: pm (31일 — 발행 빈도 낮음, pw 시 수집 결과 없음)
+# ⚠️ pm 사용 시 Notion dedupe 윈도우(기본 7일)와 불일치 → 재삽입 리스크 존재
+#    (별도 이슈로 추적 중 — collect_intake.py dedup window 확장 필요)
 SLOT_FRESHNESS_OVERRIDE: dict[str, str] = {
-    "RAPS_NEWS": "pm",  # RAPS 발행 빈도 ~주 1~2회 → 7일 윈도우에서 결과 없음
-    "EPR_NEWS":  "pm",  # EPR 동일
+    "RAPS_NEWS": "pm",  # RAPS 발행 빈도 ~주 1~2회 → pw 시 수집 결과 없음
 }
 
 # Evidence Candidate: 공식 규제기관 도메인 → B, 그 외 → C
@@ -106,11 +107,11 @@ OFFICIAL_DOMAINS: frozenset[str] = frozenset({
 })
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 9개 Search Slot 정의 (v2.1 — site: 중심, 연도 하드코딩 없음, FR/Recall 중복 제거)
+# 10개 Search Slot 정의 (v1.4 — site: 중심, 연도 하드코딩 없음, FR/Recall 중복 제거)
 # ─────────────────────────────────────────────────────────────────────────────
 # 형식: (slot_name, query_string)
 # slot_name은 로그·디버그용, query_string이 Brave에 전달됨
-# - freshness=pw (7일) 필터가 날짜 범위를 제어하므로 연도를 쿼리에 넣지 않음
+# - freshness는 슬롯별 SLOT_FRESHNESS_OVERRIDE 또는 기본 BRAVE_FRESHNESS(pw) 사용
 # - site: 연산자로 공식 도메인 우선 탐색 → Evidence B 비율 향상
 # - FR(Federal Register)과 OpenFDA Recall은 API 전수 수집 중 → Search 중복 강조 생략
 
@@ -167,12 +168,10 @@ SEARCH_SLOTS: list[tuple[str, str]] = [
         "RAPS_NEWS",
         'site:raps.org/resource (GMP OR CGMP) (FDA OR EMA OR ICH OR "warning letter")',
     ),
-    (
-        # European Pharmaceutical Review: EU GMP/QA 전문 2차 소스
-        # /news 경로 제약 제거 — Brave 인덱스 커버리지가 낮아 경로 좁히면 항상 0
-        "EPR_NEWS",
-        'site:europeanpharmaceuticalreview.com (GMP OR CGMP OR "pharmaceutical quality") (EMA OR MHRA OR EDQM OR FDA OR Annex)',
-    ),
+    # EPR_NEWS (europeanpharmaceuticalreview.com) — 보류 2026-05-29
+    # freshness pw/pm + 경로 제약 제거(3가지 조합) 모두 raw=0
+    # 원인: freshness + 복잡한 OR 조합 + EPR 사이트 특성(JS/bot protection 등) 복합 가능성
+    # 대체 EU 전문지 추가 시 Brave raw 수집 가능 여부 사전 검증 필수
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
