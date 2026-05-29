@@ -115,7 +115,7 @@ jobs:
               "https://apis.data.go.kr/1471000/MdcinExaathrService04" \
               "getMdcinExaathrList04,getMdcinExaathrList,getMdcinExaathrInq04" || status=$?
             python probe_datago.py \
-              "https://apis.data.go.kr/1471000/DrugGmpStbltJgmtIssuStusService" \
+              "http://apis.data.go.kr/1471000/DrugGmpStbltJgmtIssuStusService" \
               "getDrugGmpStbltJgmtIssuStusInq,getDrugGmpStbltJgmtIssuStusList,getDrugGmpStbltJgmtIssuStusInq04" || status=$?
             exit "$status"
           fi
