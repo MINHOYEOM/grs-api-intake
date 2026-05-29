@@ -169,9 +169,9 @@ SEARCH_SLOTS: list[tuple[str, str]] = [
     ),
     (
         # European Pharmaceutical Review: EU GMP/QA 전문 2차 소스
-        # /news 경로로 이벤트/스폰서 페이지 제외; OR 그룹핑으로 정밀도 유지
+        # /news 경로 제약 제거 — Brave 인덱스 커버리지가 낮아 경로 좁히면 항상 0
         "EPR_NEWS",
-        'site:europeanpharmaceuticalreview.com/news (GMP OR CGMP OR "pharmaceutical quality") (EMA OR MHRA OR EDQM OR FDA OR Annex)',
+        'site:europeanpharmaceuticalreview.com (GMP OR CGMP OR "pharmaceutical quality") (EMA OR MHRA OR EDQM OR FDA OR Annex)',
     ),
 ]
 
