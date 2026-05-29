@@ -1468,8 +1468,10 @@ def notion_query_existing_doc_ids(token: str, db_id: str, run_date: date,
     daily 수집 전환(Phase 1)으로 dedupe 윈도우를 '당일' → '최근 window_days 일'로 확장.
     동일 항목이 윈도우 내 여러 daily run 에서 재삽입되는 것을 방지한다.
 
-    dedupe key 형식: "{SOURCE_FR}::{doc_id}" 또는 "{SOURCE_RECALL}::{doc_id}"
-    Source 를 포함해 Federal Register 와 OpenFDA Recall 간 ID 충돌을 방지한다.
+    dedupe key 형식: "{source}::{doc_id}"
+    예) "Federal Register::{doc_id}", "OpenFDA Recall::{doc_id}",
+        "Brave Search::{sha1(url)[:12]}" (Phase 2a 신규)
+    Source 를 포함해 소스 간 ID 충돌을 방지한다.
 
     Raises:
         NotionDedupeQueryError: 조회 실패 시 — caller 가 insert 중단 여부를 결정.
@@ -1867,12 +1869,19 @@ def main() -> int:
     ))
 
     # 3) Notion 기존 row (중복 제거)
+    # RAPS_NEWS 등 freshness=pm(31일) 소스가 있으면 dedupe 윈도우를 35일로 확장
+    # (7일 윈도우 시 8일 전 RAPS URL이 누락되어 재삽입될 수 있음 — Task #13)
+    enable_search = os.environ.get("ENABLE_SEARCH", "false").lower() == "true"
+    _SEARCH_DEDUP_WINDOW_DAYS = 35  # pm(31일) + 여유 4일
+    dedup_window_days = max(args.window_days, _SEARCH_DEDUP_WINDOW_DAYS) if enable_search else args.window_days
+    log("INFO", f"dedupe window={dedup_window_days}일 (window_days={args.window_days}, enable_search={enable_search})")
+
     if args.dry_run:
         existing: set[str] = set()
     else:
         try:
             existing = notion_query_existing_doc_ids(notion_token, notion_db, run_date,
-                                                     window_days=args.window_days)
+                                                     window_days=dedup_window_days)
         except NotionDedupeQueryError as e:
             # 중복 조회 실패 시 빈 set으로 진행하면 대량 중복 insert 위험 → 중단
             log("ERROR", f"중복 조회 실패 — duplicate insert 방지를 위해 insert 단계 중단: {e}")
@@ -1925,7 +1934,7 @@ def main() -> int:
     stats.wl_insert_failed = wl_fail
 
     # ── Phase 2a: Brave Search (ENABLE_SEARCH=true 시 실행) ──────────────────
-    enable_search = os.environ.get("ENABLE_SEARCH", "false").lower() == "true"
+    # enable_search는 위 dedupe 윈도우 계산 시 이미 정의됨 (재정의 불필요)
     if enable_search:
         brave_api_key = os.environ.get("BRAVE_API_KEY", "")
         log("INFO", "=== Brave Search 수집 시작 ===")
