@@ -22,7 +22,7 @@ on:
         type: string
         default: '7'
       sources:
-        description: '수집 소스 제한(공백/쉼표 구분: fr recall ema mhra pics eca wl). 비우면 전체'
+        description: '수집 소스 제한(공백/쉼표 구분: fr recall ema mhra pics eca wl none). 비우면 전체'
         type: string
         default: ''
       enable_search:
@@ -37,6 +37,10 @@ on:
         description: 'MFDS 회수·판매중지 API 수집 활성화 (기본: vars.ENABLE_MFDS_RECALL 또는 true)'
         type: boolean
         default: true
+      enable_mfds_admin:
+        description: 'MFDS 행정처분 API 수집 활성화 (기본: vars.ENABLE_MFDS_ADMIN 또는 false)'
+        type: boolean
+        default: false
       enable_moleg_api:
         description: '법제처 ogLmPp API opt-in (기본: vars.ENABLE_MOLEG_API 또는 false)'
         type: boolean
@@ -102,24 +106,10 @@ jobs:
           ENABLE_SEARCH: ${{ (github.event_name == 'workflow_dispatch') && format('{0}', inputs.enable_search) || vars.ENABLE_SEARCH || 'false' }}
           ENABLE_MFDS: ${{ (github.event_name == 'workflow_dispatch') && format('{0}', inputs.enable_mfds) || vars.ENABLE_MFDS || 'true' }}
           ENABLE_MFDS_RECALL: ${{ (github.event_name == 'workflow_dispatch') && format('{0}', inputs.enable_mfds_recall) || vars.ENABLE_MFDS_RECALL || 'true' }}
+          ENABLE_MFDS_ADMIN: ${{ (github.event_name == 'workflow_dispatch') && format('{0}', inputs.enable_mfds_admin) || vars.ENABLE_MFDS_ADMIN || 'false' }}
           ENABLE_MOLEG_API: ${{ (github.event_name == 'workflow_dispatch') && format('{0}', inputs.enable_moleg_api) || vars.ENABLE_MOLEG_API || 'false' }}
           ENABLE_SCRAPE: ${{ (github.event_name == 'workflow_dispatch') && format('{0}', inputs.enable_scrape) || vars.ENABLE_SCRAPE || 'false' }}
         run: |
-          if [ "$GRM_EVENT_NAME" = "workflow_dispatch" ] && [ "$GRM_SOURCES" = "__probe_admin_gmpcert__" ]; then
-            if [ -z "$DATA_GO_KR_SERVICE_KEY" ]; then
-              echo "::error ::DATA_GO_KR_SERVICE_KEY secret is missing"
-              exit 1
-            fi
-            status=0
-            python probe_datago.py \
-              "https://apis.data.go.kr/1471000/MdcinExaathrService04" \
-              "getMdcinExaathrList04,getMdcinExaathrList,getMdcinExaathrInq04" || status=$?
-            python probe_datago.py \
-              "http://apis.data.go.kr/1471000/DrugGmpStbltJgmtIssuStusService" \
-              "getDrugGmpStbltJgmtIssuStusInq,getDrugGmpStbltJgmtIssuStusList,getDrugGmpStbltJgmtIssuStusInq04" || status=$?
-            exit "$status"
-          fi
-
           # bash array 방식 — 인자를 문자열 연결하지 않아 quoting/injection 문제 없음
           args=()
           if [ "$GRM_EVENT_NAME" = "workflow_dispatch" ]; then
@@ -141,7 +131,7 @@ jobs:
             if [ -n "$GRM_SOURCES" ]; then
               # 쉼표도 공백으로 처리. 허용된 source 토큰만 --sources 인자로 전달.
               read -r -a SOURCE_TOKENS <<< "$(printf '%s' "$GRM_SOURCES" | tr ',' ' ')"
-              valid_sources=(fr recall ema mhra pics eca wl)
+              valid_sources=(fr recall ema mhra pics eca wl none)
               source_args=()
               for src in "${SOURCE_TOKENS[@]}"; do
                 ok=false
@@ -183,7 +173,7 @@ jobs:
                 '2. Notion DB 스키마 (속성 이름·타입)',
                 '3. Federal Register / OpenFDA / RSS / FDA WL 상태',
                 '4. GitHub Secrets 값 (NOTION_TOKEN, OPENFDA_API_KEY, BRAVE_API_KEY, DATA_GO_KR_SERVICE_KEY)',
-                '5. Repository Variables (ENABLE_SEARCH, ENABLE_MFDS, ENABLE_MFDS_RECALL, ENABLE_MOLEG_API, ENABLE_SCRAPE) 설정 확인',
+                '5. Repository Variables (ENABLE_SEARCH, ENABLE_MFDS, ENABLE_MFDS_RECALL, ENABLE_MFDS_ADMIN, ENABLE_MOLEG_API, ENABLE_SCRAPE) 설정 확인',
                 '6. MFDS 활성화 시 RSS/API 상태 확인; ENABLE_MOLEG_API=true인 경우 DATA_GO_KR_KEY/OC/IP 인가 확인',
                 '',
                 '실패해도 Claude Routine 은 v14.5 WebSearch-only 모드로 graceful degradation 됩니다.',

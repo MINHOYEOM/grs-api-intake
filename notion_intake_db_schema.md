@@ -30,7 +30,7 @@
 | `Headline` | Rich text | ✓ | 제목/제품명/게시글 제목 | 표시용 |
 | `Official URL` | URL |  | 공식 원문 URL | Search Evidence C는 비울 수 있음 |
 | `Source URL` | URL |  | Search/Scrape가 발견한 실제 URL | Phase 2a 신규 |
-| `Type or Class` | Select |  | `Rule` / `Proposed Rule` / `Notice` / `Class I` / `Class II` / `Class III` / `legislative-notice` / `gmp-guideline` / `gmp-inspection` / `regulation-final` / `notice-final` / `guidance-industry` / `guidance-internal` / `safety-letter` / `recall-quality` 등 | MFDS는 사람용 번역 없이 기계용 영문 키 사용 |
+| `Type or Class` | Select |  | `Rule` / `Proposed Rule` / `Notice` / `Class I` / `Class II` / `Class III` / `legislative-notice` / `gmp-guideline` / `gmp-inspection` / `regulation-final` / `notice-final` / `guidance-industry` / `guidance-internal` / `safety-letter` / `recall-quality` / `admin-action` / `gmp-certificate` 등 | MFDS는 사람용 번역 없이 기계용 영문 키 사용 |
 | `Firm` | Rich text |  | 업체명 | Recall/WL 중심 |
 | `Body` | Rich text |  | 요약/본문 일부 | 한국어 원문은 그대로 저장 |
 | `Distribution` | Rich text |  | `distribution_pattern` | Recall 전용 |

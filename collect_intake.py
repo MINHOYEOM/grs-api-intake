@@ -346,6 +346,12 @@ class CollectionStats:
     mfds_recall_insert_failed: int = 0
     mfds_recall_error: bool = False
     mfds_recall_error_msg: str = ""
+    mfds_admin_fetched: int = 0
+    mfds_admin_inserted: int = 0
+    mfds_admin_skipped_dup: int = 0
+    mfds_admin_insert_failed: int = 0
+    mfds_admin_error: bool = False
+    mfds_admin_error_msg: str = ""
 
     def total_insert_failures(self) -> int:
         return (
@@ -354,6 +360,7 @@ class CollectionStats:
             + self.pics_insert_failed + self.eca_insert_failed
             + self.wl_insert_failed + self.search_insert_failed
             + self.mfds_insert_failed + self.mfds_recall_insert_failed
+            + self.mfds_admin_insert_failed
         )
 
     def has_insert_failures(self) -> bool:
@@ -371,6 +378,7 @@ class CollectionStats:
             or self.search_error   # Phase 2a 신규 — misconfiguration 포함
             or self.mfds_error
             or self.mfds_recall_error
+            or self.mfds_admin_error
         )
 
     def summary(self) -> str:
@@ -407,6 +415,9 @@ class CollectionStats:
             f"MFR  fetched={self.mfds_recall_fetched}  inserted={self.mfds_recall_inserted}  "
             f"skip_dup={self.mfds_recall_skipped_dup}  failed={self.mfds_recall_insert_failed}  "
             f"error={self.mfds_recall_error}",
+            f"MFA  fetched={self.mfds_admin_fetched}  inserted={self.mfds_admin_inserted}  "
+            f"skip_dup={self.mfds_admin_skipped_dup}  failed={self.mfds_admin_insert_failed}  "
+            f"error={self.mfds_admin_error}",
         ]
         return "\n".join(lines)
 
@@ -1763,6 +1774,7 @@ def insert_items(token: str, db_id: str, items: Iterable[IntakeItem],
 
 
 _ALL_SOURCES = ["fr", "recall", "ema", "mhra", "pics", "eca", "wl"]
+_SOURCE_CHOICES = _ALL_SOURCES + ["none"]
 
 
 def main() -> int:
@@ -1772,11 +1784,12 @@ def main() -> int:
     parser.add_argument("--window-days", type=int, default=7,
                         choices=range(1, 91), metavar="N(1-90)",
                         help="수집 윈도우 일수 1~90 (default 7)")
-    parser.add_argument("--sources", nargs="+", choices=_ALL_SOURCES,
+    parser.add_argument("--sources", nargs="+", choices=_SOURCE_CHOICES,
                         default=_ALL_SOURCES,
-                        help="수집할 소스 선택 (기본: all). 예: --sources fr recall ema")
+                        help="수집할 소스 선택 (기본: all). 예: --sources fr recall ema. "
+                             "none은 feature-flag collector만 단독 실행")
     args = parser.parse_args()
-    active = set(args.sources)
+    active = set() if "none" in args.sources else set(args.sources)
 
     notion_token = os.environ.get("NOTION_TOKEN", "").strip()
     notion_db = os.environ.get("NOTION_DATABASE_ID", "").strip()
@@ -1786,6 +1799,7 @@ def main() -> int:
     enable_search = os.environ.get("ENABLE_SEARCH", "false").lower() == "true"
     enable_mfds = os.environ.get("ENABLE_MFDS", "false").lower() == "true"
     enable_mfds_recall = os.environ.get("ENABLE_MFDS_RECALL", "false").lower() == "true"
+    enable_mfds_admin = os.environ.get("ENABLE_MFDS_ADMIN", "false").lower() == "true"
     enable_moleg_api = os.environ.get("ENABLE_MOLEG_API", "false").lower() == "true"
     enable_scrape = os.environ.get("ENABLE_SCRAPE", "false").lower() == "true"
     if enable_scrape:
@@ -1907,16 +1921,40 @@ def main() -> int:
     else:
         log("INFO", "ENABLE_MFDS_RECALL=false — MFDS 회수·판매중지 수집 건너뜀")
 
+    # ── Phase 2c: MFDS Administrative Actions (ENABLE_MFDS_ADMIN=true 시 실행) ─
+    mfds_admin_items: list[IntakeItem] = []
+    if enable_mfds_admin:
+        log("INFO", "=== MFDS 행정처분 수집 시작 ===")
+        if not data_go_kr_service_key:
+            mfds_admin_err = "DATA_GO_KR_SERVICE_KEY 환경변수 필요"
+            mfds_admin_items = []
+        else:
+            try:
+                from collect_mfds_admin_action import collect_mfds_admin_actions
+                mfds_admin_items, mfds_admin_err = collect_mfds_admin_actions(
+                    start, end, data_go_kr_service_key)
+            except Exception as e:
+                mfds_admin_items, mfds_admin_err = [], str(e)
+        stats.mfds_admin_fetched = len(mfds_admin_items)
+        if mfds_admin_err:
+            stats.mfds_admin_error = True
+            stats.mfds_admin_error_msg = mfds_admin_err
+            log("WARN", f"MFDS Admin 오류: {mfds_admin_err}")
+    else:
+        log("INFO", "ENABLE_MFDS_ADMIN=false — MFDS 행정처분 수집 건너뜀")
+
     total_fetched = (stats.fr_fetched + stats.recall_fetched + stats.ema_fetched
                      + stats.mhra_fetched + stats.pics_fetched
                      + stats.eca_fetched + stats.wl_fetched
-                     + stats.mfds_fetched + stats.mfds_recall_fetched)
+                     + stats.mfds_fetched + stats.mfds_recall_fetched
+                     + stats.mfds_admin_fetched)
     log("INFO", (
         f"수집 완료: FR={stats.fr_fetched} · Recall={stats.recall_fetched} · "
         f"EMA={stats.ema_fetched} · MHRA={stats.mhra_fetched} · "
         f"PICS={stats.pics_fetched} · ECA={stats.eca_fetched} · "
         f"WL={stats.wl_fetched} · MFDS={stats.mfds_fetched} · "
-        f"MFDS-Recall={stats.mfds_recall_fetched} · 합계={total_fetched}건"
+        f"MFDS-Recall={stats.mfds_recall_fetched} · "
+        f"MFDS-Admin={stats.mfds_admin_fetched} · 합계={total_fetched}건"
     ))
 
     # 3) Notion 기존 row (중복 제거)
@@ -1996,6 +2034,13 @@ def main() -> int:
     stats.mfds_recall_skipped_dup = mfds_rec_sk
     stats.mfds_recall_insert_failed = mfds_rec_fail
 
+    mfds_admin_in, mfds_admin_sk, mfds_admin_fail = insert_items(
+        notion_token, notion_db, mfds_admin_items,
+        run_date, collected_at, existing, args.dry_run)
+    stats.mfds_admin_inserted = mfds_admin_in
+    stats.mfds_admin_skipped_dup = mfds_admin_sk
+    stats.mfds_admin_insert_failed = mfds_admin_fail
+
     # ── Phase 2a: Brave Search (ENABLE_SEARCH=true 시 실행) ──────────────────
     # enable_search는 위 dedupe 윈도우 계산 시 이미 정의됨 (재정의 불필요)
     if enable_search:
@@ -2074,6 +2119,13 @@ def main() -> int:
                                       stats.mfds_recall_insert_failed,
                                       stats.mfds_recall_error,
                                       stats.mfds_recall_error_msg))
+                if enable_mfds_admin:
+                    f.write(_src_line("MFDS Admin", stats.mfds_admin_fetched,
+                                      stats.mfds_admin_inserted,
+                                      stats.mfds_admin_skipped_dup,
+                                      stats.mfds_admin_insert_failed,
+                                      stats.mfds_admin_error,
+                                      stats.mfds_admin_error_msg))
                 if enable_search:
                     f.write(_src_line("Brave Search", stats.search_fetched, stats.search_inserted,
                                       stats.search_skipped_dup, stats.search_insert_failed,
@@ -2096,6 +2148,9 @@ def main() -> int:
                     if stats.mfds_recall_error:
                         f.write(f"> MFDS Recall error: `{stats.mfds_recall_error_msg[:120] or 'none'}` "
                                 f"— ENABLE_MFDS_RECALL 및 DATA_GO_KR_SERVICE_KEY 설정 확인.\n")
+                    if stats.mfds_admin_error:
+                        f.write(f"> MFDS Admin error: `{stats.mfds_admin_error_msg[:120] or 'none'}` "
+                                f"— ENABLE_MFDS_ADMIN 및 DATA_GO_KR_SERVICE_KEY 설정 확인.\n")
         except OSError as e:
             log("WARN", f"STEP_SUMMARY 쓰기 실패: {e}")
 
@@ -2125,6 +2180,7 @@ def main() -> int:
             ("wl" not in active or stats.wl_error),
             (not enable_mfds or stats.mfds_error),
             (not enable_mfds_recall or stats.mfds_recall_error),
+            (not enable_mfds_admin or stats.mfds_admin_error),
         ])
         if phase2_all_error:
             log("ERROR", "모든 활성 소스 실패 — workflow fail")
@@ -2143,6 +2199,10 @@ def main() -> int:
     if enable_mfds_recall and stats.mfds_recall_error:
         log("ERROR", f"ENABLE_MFDS_RECALL=true 상태에서 MFDS Recall 오류 — workflow fail "
                      f"({stats.mfds_recall_error_msg[:80]})")
+        return 1
+    if enable_mfds_admin and stats.mfds_admin_error:
+        log("ERROR", f"ENABLE_MFDS_ADMIN=true 상태에서 MFDS Admin 오류 — workflow fail "
+                     f"({stats.mfds_admin_error_msg[:80]})")
         return 1
     return 0
 
