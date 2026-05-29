@@ -39,12 +39,20 @@ import time
 import urllib.parse
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from html.parser import HTMLParser
 from typing import Any, Iterable
 from zoneinfo import ZoneInfo
 
 import requests
+
+from grm_common import (
+    HTTPClientError,
+    http_get_json,
+    http_get_xml,
+    log,
+    retry_after_seconds,
+)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -80,6 +88,8 @@ PROP_API_QUERY = "API Query"
 PROP_QA_RELEVANCE = "QA Relevance"
 PROP_STATUS = "Status"
 PROP_SIGNAL_TIER = "Signal Tier"
+PROP_LANGUAGE = "Language"
+PROP_REGION_JURISDICTION = "Region/Jurisdiction"
 
 # Phase 2a 신규 Notion 필드
 PROP_SOURCE_URL         = "Source URL"
@@ -95,6 +105,7 @@ SOURCE_MHRA = "MHRA Inspectorate"
 SOURCE_PICS = "PIC/S"
 SOURCE_ECA = "ECA Academy"
 SOURCE_FDA_WL = "FDA Warning Letter"
+SOURCE_MFDS = "MFDS"
 
 # ── Phase 2a: Search / Scrape 소스 ──────────────────────────────────────────
 SOURCE_BRAVE = "Brave Search"
@@ -120,6 +131,7 @@ SOURCE_TYPE_MAP: dict[str, str] = {
     SOURCE_PICS:    SRC_TYPE_OFFICIAL_PAGE,
     SOURCE_ECA:     SRC_TYPE_EXPERT_SECONDARY,
     SOURCE_FDA_WL:  SRC_TYPE_OFFICIAL_PAGE,
+    SOURCE_MFDS:    SRC_TYPE_OFFICIAL_PAGE,
     # Phase 2a 신규
     SOURCE_BRAVE:   SRC_TYPE_SEARCH_RESULT,
     SOURCE_RAPS:    SRC_TYPE_EXPERT_SECONDARY,
@@ -259,6 +271,8 @@ class IntakeItem:
     raw_excerpt: str = ""          # ≤200자 snippet/excerpt
     search_query: str = ""         # Brave Search 실행 쿼리 (Search 전용)
     evidence_candidate: str = ""   # "A"/"B"/"C"/"D" — 수집기 후보, Routine 최종 판정
+    language: str = ""             # KO / EN 등. MFDS Phase 2b부터 사용
+    region_jurisdiction: str = ""  # 예: Korea (MFDS)
 
 
 @dataclass
@@ -316,15 +330,25 @@ class CollectionStats:
     search_insert_failed: int = 0
     search_error: bool = False
     search_error_msg: str = ""
+    # ── Phase 2b: MFDS ─────────────────────────────────────────────────────
+    mfds_fetched: int = 0
+    mfds_inserted: int = 0
+    mfds_skipped_dup: int = 0
+    mfds_insert_failed: int = 0
+    mfds_error: bool = False
+    mfds_error_msg: str = ""
+
+    def total_insert_failures(self) -> int:
+        return (
+            self.fr_insert_failed + self.recall_insert_failed
+            + self.ema_insert_failed + self.mhra_insert_failed
+            + self.pics_insert_failed + self.eca_insert_failed
+            + self.wl_insert_failed + self.search_insert_failed
+            + self.mfds_insert_failed
+        )
 
     def has_insert_failures(self) -> bool:
-        return (
-            self.fr_insert_failed > 0 or self.recall_insert_failed > 0
-            or self.ema_insert_failed > 0 or self.mhra_insert_failed > 0
-            or self.pics_insert_failed > 0 or self.eca_insert_failed > 0
-            or self.wl_insert_failed > 0
-            or self.search_insert_failed > 0   # Phase 2a 신규
-        )
+        return self.total_insert_failures() > 0
 
     def has_source_errors(self) -> bool:
         """수집기 레벨 오류 여부 (insert 실패와 별개).
@@ -336,6 +360,7 @@ class CollectionStats:
             or self.mhra_error or self.pics_error or self.eca_error
             or self.wl_error
             or self.search_error   # Phase 2a 신규 — misconfiguration 포함
+            or self.mfds_error
         )
 
     def summary(self) -> str:
@@ -366,6 +391,9 @@ class CollectionStats:
             f"SRC  fetched={self.search_fetched}  inserted={self.search_inserted}  "
             f"skip_dup={self.search_skipped_dup}  failed={self.search_insert_failed}  "
             f"error={self.search_error}",
+            f"MFDS fetched={self.mfds_fetched}  inserted={self.mfds_inserted}  "
+            f"skip_dup={self.mfds_skipped_dup}  failed={self.mfds_insert_failed}  "
+            f"error={self.mfds_error}",
         ]
         return "\n".join(lines)
 
@@ -373,11 +401,6 @@ class CollectionStats:
 # ─────────────────────────────────────────────────────────────────────────────
 # 유틸
 # ─────────────────────────────────────────────────────────────────────────────
-
-
-def log(level: str, msg: str) -> None:
-    ts = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    print(f"[{ts}] {level} {msg}", flush=True)
 
 
 def now_kst() -> datetime:
@@ -409,73 +432,15 @@ def chunk_text(text: str, size: int = NOTION_RICH_TEXT_CHUNK) -> list[str]:
     return [text[i : i + size] for i in range(0, len(text), size)]
 
 
-class HTTPClientError(RuntimeError):
-    """4xx HTTP 에러 전용 예외 — status_code 속성으로 정확한 판별 가능."""
-    def __init__(self, status_code: int, url: str, msg: str = "") -> None:
-        super().__init__(msg or f"HTTP {status_code} for {url}")
-        self.status_code = status_code
-
-
-def http_get_json(url: str, *, params: dict[str, Any] | None = None,
-                  timeout: int = 30, retries: int = 2) -> dict[str, Any]:
-    """JSON GET 요청. 4xx 는 HTTPClientError (재시도 없음), 5xx/네트워크 오류는 지수 백오프 재시도."""
-    last_err: Exception | None = None
-    for attempt in range(retries + 1):
-        try:
-            resp = requests.get(url, params=params, timeout=timeout,
-                                headers={"User-Agent": "GRM-Intake/1.0 (+github-actions)"})
-            if 400 <= resp.status_code < 500:
-                # 4xx 는 재시도해도 동일 결과 — 즉시 HTTPClientError 발생
-                raise HTTPClientError(resp.status_code, url,
-                                      f"HTTP {resp.status_code} for {url}")
-            resp.raise_for_status()
-            return resp.json()
-        except HTTPClientError:
-            raise  # 재시도 없이 전파
-        except requests.RequestException as e:  # noqa: PERF203
-            last_err = e
-            log("WARN", f"GET 실패 ({attempt + 1}/{retries + 1}) url={url} err={e}")
-            if attempt < retries:
-                time.sleep(2 ** attempt)
-    raise RuntimeError(f"HTTP GET 최종 실패: {url} ({last_err})")
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # RSS / Atom / HTML 헬퍼
 # ─────────────────────────────────────────────────────────────────────────────
-
-_RSS_HEADERS = {
-    "User-Agent": "GRM-Intake/1.1 (+github-actions)",
-    "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
-}
 
 # XML 네임스페이스
 _NS_ATOM  = "http://www.w3.org/2005/Atom"
 _NS_DC    = "http://purl.org/dc/elements/1.1/"
 _NS_DCTERMS = "http://purl.org/dc/terms/"
 _NS_CONTENT = "http://purl.org/rss/1.0/modules/content/"
-
-
-def http_get_xml(url: str, *, timeout: int = 30, retries: int = 2) -> ET.Element:
-    """XML GET 요청 → ElementTree root 반환. 4xx=HTTPClientError, 5xx 재시도."""
-    last_err: Exception | None = None
-    for attempt in range(retries + 1):
-        try:
-            resp = requests.get(url, timeout=timeout, headers=_RSS_HEADERS)
-            if 400 <= resp.status_code < 500:
-                raise HTTPClientError(resp.status_code, url)
-            resp.raise_for_status()
-            return ET.fromstring(resp.content)
-        except HTTPClientError:
-            raise
-        except ET.ParseError as e:
-            raise RuntimeError(f"XML 파싱 실패: {url} — {e}") from e
-        except requests.RequestException as e:
-            last_err = e
-            log("WARN", f"XML GET 실패 ({attempt + 1}/{retries + 1}) url={url} err={e}")
-            if attempt < retries:
-                time.sleep(2 ** attempt)
-    raise RuntimeError(f"HTTP XML GET 최종 실패: {url} ({last_err})")
 
 
 def _rss_text(el: ET.Element | None) -> str:
@@ -568,7 +533,7 @@ def _atom_entries_from_root(root: ET.Element) -> list[ET.Element]:
 
 def _atom_text(entry: ET.Element, tag: str) -> str:
     """Atom 네임스페이스 포함 텍스트 추출 (네임스페이스 있는 버전, 없는 버전 모두)."""
-    el = entry.find(f"{{{_NS_ATOM}}}{tag}") or entry.find(tag)
+    el = _rss_find(entry, f"{{{_NS_ATOM}}}{tag}", tag)
     if el is None:
         return ""
     # <content> / <summary> 등의 type="html" 처리
@@ -987,7 +952,7 @@ def collect_ema_rss(start: date, end: date) -> tuple[list[IntakeItem], str | Non
             pub_raw = _rss_text(el.find("pubDate")) or _rss_text(el.find("pubdate"))
             # EMA 피드에 따라 dc:date 를 fallback 으로 사용
             if not pub_raw:
-                dc_date = el.find(f"{{{_NS_DC}}}date") or el.find(f"{{{_NS_DCTERMS}}}modified")
+                dc_date = _rss_find(el, f"{{{_NS_DC}}}date", f"{{{_NS_DCTERMS}}}modified")
                 pub_raw = _rss_text(dc_date)
             date_iso = _parse_rss2_date(pub_raw) if pub_raw else ""
             # dc:date 가 Atom 형식인 경우 재시도
@@ -1073,11 +1038,11 @@ def collect_mhra_rss(start: date, end: date) -> tuple[list[IntakeItem], str | No
         summary  = _atom_text(entry, "summary") or _atom_text(entry, "content")
 
         # category
-        cat_el = entry.find(f"{{{_NS_ATOM}}}category") or entry.find("category")
+        cat_el = _rss_find(entry, f"{{{_NS_ATOM}}}category", "category")
         category = (cat_el.get("term", "") if cat_el is not None else "").strip()
 
         # Atom id 를 document_id 로 사용
-        id_el = entry.find(f"{{{_NS_ATOM}}}id") or entry.find("id")
+        id_el = _rss_find(entry, f"{{{_NS_ATOM}}}id", "id")
         guid  = _rss_text(id_el) or link
 
         if not _within_window(date_iso, start, end):
@@ -1370,8 +1335,9 @@ def collect_fda_warning_letters(start: date, end: date) -> tuple[list[IntakeItem
     parser.feed(html_text)
 
     if not parser.rows:
-        log("INFO", "FDA WL HTML 테이블 미발견 — JS-rendered 가능성 (건너뜀)")
-        return [], None
+        msg = "FDA WL HTML 테이블 미발견 — 구조 변경 또는 JS-rendered 가능성"
+        log("WARN", msg)
+        return [], msg
 
     items: list[IntakeItem] = []
     for row in parser.rows:
@@ -1499,9 +1465,27 @@ def notion_query_existing_doc_ids(token: str, db_id: str, run_date: date,
                 body["start_cursor"] = start_cursor
             elif "start_cursor" in body:
                 del body["start_cursor"]
-            resp = requests.post(url, json=body, headers=notion_headers(token), timeout=30)
-            resp.raise_for_status()
-            data = resp.json()
+            data: dict[str, Any] | None = None
+            for attempt in range(3):
+                resp = requests.post(url, json=body, headers=notion_headers(token), timeout=30)
+                if resp.status_code == 429 and attempt < 2:
+                    sleep_s = retry_after_seconds(resp, attempt, max_sleep=30)
+                    log("WARN", f"Notion dedupe 429 rate-limit — {sleep_s}s 후 재시도 "
+                                f"({attempt + 1}/3)")
+                    time.sleep(sleep_s)
+                    continue
+                if resp.status_code >= 500 and attempt < 2:
+                    log("WARN", f"Notion dedupe 조회 실패 ({resp.status_code}) "
+                                f"attempt={attempt + 1}/3 body={resp.text[:200]}")
+                    time.sleep(2 ** attempt)
+                    continue
+                resp.raise_for_status()
+                data = resp.json()
+                break
+            if data is None:
+                raise NotionDedupeQueryError(
+                    f"Notion 중복 조회 실패 (RunDate={run_date}): empty response"
+                )
             for pg in data.get("results", []):
                 props = pg.get("properties", {})
                 # Source
@@ -1519,7 +1503,7 @@ def notion_query_existing_doc_ids(token: str, db_id: str, run_date: date,
             if page_count >= 20:
                 log("WARN", f"Notion dedupe 조회 20페이지 상한 도달 — "
                             f"일부 기존 row 누락 가능 (existing={len(existing)}건)")
-    except requests.RequestException as e:
+    except (requests.RequestException, ValueError) as e:
         # 중복 조회 실패 시 빈 set을 반환하면 모든 item을 신규로 판단해 대량 중복 insert 위험.
         # 안전하게 예외를 던져 caller 가 insert 중단 여부를 결정하도록 한다.
         raise NotionDedupeQueryError(
@@ -1569,6 +1553,7 @@ def build_notion_properties(item: IntakeItem, run_date: date,
         SOURCE_PICS:    "PICS",
         SOURCE_ECA:     "ECA",
         SOURCE_FDA_WL:  "WL",
+        SOURCE_MFDS:    "MFDS",
         # Phase 2a 신규 ("SRC" 아님 — 모호함 방지)
         SOURCE_BRAVE:   "BRV",
         SOURCE_RAPS:    "RAPS",
@@ -1635,6 +1620,10 @@ def build_notion_properties(item: IntakeItem, run_date: date,
         }
     if item.evidence_candidate:
         props[PROP_EVIDENCE_CANDIDATE] = _select(item.evidence_candidate)
+    if item.language:
+        props[PROP_LANGUAGE] = _select(item.language)
+    if item.region_jurisdiction:
+        props[PROP_REGION_JURISDICTION] = _select(item.region_jurisdiction)
 
     return props
 
@@ -1688,13 +1677,7 @@ def notion_create_page(token: str, db_id: str, item: IntakeItem,
                             f"doc={item.document_id} body={resp.text[:300]}")
                 return False
             if resp.status_code == 429:
-                # Retry-After 파싱: 정수/소수/빈 헤더 모두 안전 처리, 상한 30s 적용
-                _MAX_RETRY_SLEEP = 30
-                raw_ra = resp.headers.get("Retry-After", "")
-                try:
-                    retry_after = min(int(float(raw_ra)), _MAX_RETRY_SLEEP)
-                except (ValueError, TypeError):
-                    retry_after = min(2 ** attempt, _MAX_RETRY_SLEEP)
+                retry_after = retry_after_seconds(resp, attempt, max_sleep=30)
                 # 마지막 attempt 직전에는 sleep 후 재시도해도 의미 없으므로 생략
                 if attempt < retries:
                     log("WARN", f"Notion 429 rate-limit doc={item.document_id} "
@@ -1783,6 +1766,13 @@ def main() -> int:
     notion_token = os.environ.get("NOTION_TOKEN", "").strip()
     notion_db = os.environ.get("NOTION_DATABASE_ID", "").strip()
     openfda_key = os.environ.get("OPENFDA_API_KEY", "").strip() or None
+    data_go_kr_key = os.environ.get("DATA_GO_KR_KEY", "").strip()
+    enable_search = os.environ.get("ENABLE_SEARCH", "false").lower() == "true"
+    enable_mfds = os.environ.get("ENABLE_MFDS", "false").lower() == "true"
+    enable_moleg_api = os.environ.get("ENABLE_MOLEG_API", "false").lower() == "true"
+    enable_scrape = os.environ.get("ENABLE_SCRAPE", "false").lower() == "true"
+    if enable_scrape:
+        log("WARN", "ENABLE_SCRAPE=true 이지만 Web Scrape 수집기는 아직 미구현 — 건너뜀")
 
     if not args.dry_run:
         if not notion_token or not notion_db:
@@ -1858,20 +1848,40 @@ def main() -> int:
             stats.wl_error = True
             stats.wl_error_msg = wl_err
 
+    # ── Phase 2b: MFDS (ENABLE_MFDS=true 시 실행, 기본 false) ───────────────
+    mfds_items: list[IntakeItem] = []
+    if enable_mfds:
+        log("INFO", "=== MFDS 수집 시작 ===")
+        if data_go_kr_key and not enable_moleg_api:
+            log("INFO", "DATA_GO_KR_KEY 존재하지만 ENABLE_MOLEG_API=false - ogLmPp 호출 없이 RSS primary 사용")
+        try:
+            from collect_mfds import collect_mfds
+            mfds_key = data_go_kr_key if enable_moleg_api else None
+            mfds_items, mfds_err = collect_mfds(start, end, mfds_key)
+        except Exception as e:
+            mfds_items, mfds_err = [], str(e)
+        stats.mfds_fetched = len(mfds_items)
+        if mfds_err:
+            stats.mfds_error = True
+            stats.mfds_error_msg = mfds_err
+            log("WARN", f"MFDS 오류: {mfds_err}")
+    else:
+        log("INFO", "ENABLE_MFDS=false — MFDS 수집 건너뜀")
+
     total_fetched = (stats.fr_fetched + stats.recall_fetched + stats.ema_fetched
                      + stats.mhra_fetched + stats.pics_fetched
-                     + stats.eca_fetched + stats.wl_fetched)
+                     + stats.eca_fetched + stats.wl_fetched
+                     + stats.mfds_fetched)
     log("INFO", (
         f"수집 완료: FR={stats.fr_fetched} · Recall={stats.recall_fetched} · "
         f"EMA={stats.ema_fetched} · MHRA={stats.mhra_fetched} · "
         f"PICS={stats.pics_fetched} · ECA={stats.eca_fetched} · "
-        f"WL={stats.wl_fetched} · 합계={total_fetched}건"
+        f"WL={stats.wl_fetched} · MFDS={stats.mfds_fetched} · 합계={total_fetched}건"
     ))
 
     # 3) Notion 기존 row (중복 제거)
     # RAPS_NEWS 등 freshness=pm(31일) 소스가 있으면 dedupe 윈도우를 35일로 확장
     # (7일 윈도우 시 8일 전 RAPS URL이 누락되어 재삽입될 수 있음 — Task #13)
-    enable_search = os.environ.get("ENABLE_SEARCH", "false").lower() == "true"
     _SEARCH_DEDUP_WINDOW_DAYS = 35  # pm(31일) + 여유 4일
     dedup_window_days = max(args.window_days, _SEARCH_DEDUP_WINDOW_DAYS) if enable_search else args.window_days
     log("INFO", f"dedupe window={dedup_window_days}일 (window_days={args.window_days}, enable_search={enable_search})")
@@ -1932,6 +1942,12 @@ def main() -> int:
     stats.wl_inserted = wl_in
     stats.wl_skipped_dup = wl_sk
     stats.wl_insert_failed = wl_fail
+
+    mfds_in, mfds_sk, mfds_fail = insert_items(notion_token, notion_db, mfds_items,
+                                               run_date, collected_at, existing, args.dry_run)
+    stats.mfds_inserted = mfds_in
+    stats.mfds_skipped_dup = mfds_sk
+    stats.mfds_insert_failed = mfds_fail
 
     # ── Phase 2a: Brave Search (ENABLE_SEARCH=true 시 실행) ──────────────────
     # enable_search는 위 dedupe 윈도우 계산 시 이미 정의됨 (재정의 불필요)
@@ -2000,14 +2016,17 @@ def main() -> int:
                 f.write(_src_line("FDA Warning Letters", stats.wl_fetched, stats.wl_inserted,
                                   stats.wl_skipped_dup, stats.wl_insert_failed,
                                   stats.wl_error, stats.wl_error_msg))
+                if enable_mfds:
+                    f.write(_src_line("MFDS", stats.mfds_fetched, stats.mfds_inserted,
+                                      stats.mfds_skipped_dup, stats.mfds_insert_failed,
+                                      stats.mfds_error, stats.mfds_error_msg))
                 if enable_search:
                     f.write(_src_line("Brave Search", stats.search_fetched, stats.search_inserted,
                                       stats.search_skipped_dup, stats.search_insert_failed,
                                       stats.search_error, stats.search_error_msg))
                 f.write(f"- Dry run: `{args.dry_run}`\n")
                 if stats.has_insert_failures():
-                    total_fail = (stats.fr_insert_failed + stats.recall_insert_failed
-                                  + stats.search_insert_failed)
+                    total_fail = stats.total_insert_failures()
                     f.write(f"\n> ⚠️ **Notion 삽입 실패 {total_fail}건** — "
                             f"해당 항목은 이번 주 다이제스트에서 누락될 수 있습니다. "
                             f"Actions 로그에서 doc ID 확인 후 필요 시 수동 재실행.\n")
@@ -2017,6 +2036,9 @@ def main() -> int:
                     if stats.search_error:
                         f.write(f"> Brave Search error: `{stats.search_error_msg[:120] or 'none'}` "
                                 f"— BRAVE_API_KEY 및 ENABLE_SEARCH 설정 확인.\n")
+                    if stats.mfds_error:
+                        f.write(f"> MFDS error: `{stats.mfds_error_msg[:120] or 'none'}` "
+                                f"— ENABLE_MFDS 및 DATA_GO_KR_KEY 설정 확인.\n")
         except OSError as e:
             log("WARN", f"STEP_SUMMARY 쓰기 실패: {e}")
 
@@ -2024,6 +2046,11 @@ def main() -> int:
     # - Phase 1 (FR + Recall) 모두 실패 → exit 1 (workflow fail)
     # - Phase 1 한쪽 실패 또는 Phase 2 전체 실패 → exit 0 (graceful degradation)
     # - Phase 2 는 개별 소스 실패가 있어도 다른 소스 계속 진행 (graceful)
+    # - Notion insert 최종 실패는 실제 데이터 유실이므로 exit 1
+    if stats.has_insert_failures():
+        log("ERROR", f"Notion insert 최종 실패 {stats.total_insert_failures()}건 — workflow fail")
+        return 1
+
     phase1_fr_active     = "fr" in active
     phase1_recall_active = "recall" in active
     fr_failed     = phase1_fr_active and stats.fr_error
@@ -2049,6 +2076,10 @@ def main() -> int:
     if enable_search and stats.search_error:
         log("ERROR", f"ENABLE_SEARCH=true 상태에서 Brave Search 오류 — workflow fail "
                      f"({stats.search_error_msg[:80]})")
+        return 1
+    if enable_mfds and stats.mfds_error:
+        log("ERROR", f"ENABLE_MFDS=true 상태에서 MFDS 오류 — workflow fail "
+                     f"({stats.mfds_error_msg[:80]})")
         return 1
     return 0
 

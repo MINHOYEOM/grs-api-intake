@@ -31,12 +31,13 @@ from urllib.parse import urlparse
 
 import requests
 
+from grm_common import log
+
 # collect_intake.py에서 공유 유틸 import
 # Task #7 패치 완료 후 SRC_TYPE_SEARCH_RESULT, SOURCE_BRAVE 도 여기서 import
 from collect_intake import (
     IntakeItem,
     compute_relevance,
-    log,
     truncate,
 )
 
@@ -76,10 +77,15 @@ BRAVE_FRESHNESS = "pw"
 # 슬롯별 freshness 개별 설정 (미지정 슬롯은 BRAVE_FRESHNESS 기본값 사용)
 # 공식 규제기관 소스: pw (7일 — 발행 빈도 높음)
 # 전문 2차 trade press: pm (31일 — 발행 빈도 낮음, pw 시 수집 결과 없음)
-# ⚠️ pm 사용 시 Notion dedupe 윈도우(기본 7일)와 불일치 → 재삽입 리스크 존재
-#    (별도 이슈로 추적 중 — collect_intake.py dedup window 확장 필요)
+#
+# RAPS_NEWS=pm 의도: RAPS는 ~주 1~2회 발행이라 pw(7일)면 수집 0건이 잦다. pm(31일)은
+#   의도된 "low-frequency catch-up" — 첫 활성화 시 최대 31일 전 기사까지 Weekly Brief에
+#   포함될 수 있다(정상 동작).
+# dedupe 정합성(해소됨): pm(31일) freshness는 collect_intake.py 의 dedupe 윈도우 확장과
+#   짝을 이룬다. ENABLE_SEARCH=true 시 dedup_window=max(window_days, 35)일이라 31일 freshness를
+#   덮으므로 재삽입되지 않는다. (과거 "7일 dedupe 불일치" 리스크는 이 확장으로 해결됨)
 SLOT_FRESHNESS_OVERRIDE: dict[str, str] = {
-    "RAPS_NEWS": "pm",  # RAPS 발행 빈도 ~주 1~2회 → pw 시 수집 결과 없음
+    "RAPS_NEWS": "pm",  # 발행 빈도 낮음 → pw 시 수집 0건. 35일 dedupe 윈도우와 짝.
 }
 
 # Evidence Candidate: 공식 규제기관 도메인 → B, 그 외 → C
@@ -88,6 +94,8 @@ OFFICIAL_DOMAINS: frozenset[str] = frozenset({
     "fda.gov",
     "federalregister.gov",
     "ema.europa.eu",
+    "ec.europa.eu",
+    "health.ec.europa.eu",
     "picscheme.org",
     "ich.org",
     "tga.gov.au",
@@ -95,9 +103,14 @@ OFFICIAL_DOMAINS: frozenset[str] = frozenset({
     "canada.ca",
     "hc-sc.gc.ca",          # Health Canada 공식 도메인
     "pmda.go.jp",
+    "mhlw.go.jp",
+    "mfds.go.kr",
+    "nmpa.gov.cn",
+    "cdsco.gov.in",
+    "anvisa.gov.br",
     "hsa.gov.sg",
     "mhra.gov.uk",
-    "gov.uk",               # MHRA blog 포함 (mhrainspectorate.blog.gov.uk)
+    "mhrainspectorate.blog.gov.uk",
     "edqm.eu",
     "swissmedic.ch",
     "usp.org",

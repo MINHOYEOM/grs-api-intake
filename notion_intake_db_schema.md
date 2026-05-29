@@ -21,25 +21,33 @@
 
 ## 속성 정의
 
-| 이름 | 타입 | 필수 | 값 (Federal Register) | 값 (OpenFDA Recall) | 비고 |
-|---|---|---|---|---|---|
-| `Name` | Title | ✓ | `FR {document_number} — {title 80자}` | `Recall {recall_number} — {recalling_firm}` | 자동 생성 |
-| `Source` | Select | ✓ | `Federal Register` | `OpenFDA Recall` | 옵션 2개 사전 등록됨 |
-| `Document ID` | Rich text | ✓ | `document_number` (예: `2026-10277`) | `recall_number` (예: `D-1234-2026`) | 검색·중복 제거 키 |
-| `Date` | Date | ✓ | `publication_date` | `report_date` | 7일 윈도우 필터용 |
-| `Headline` | Rich text | ✓ | `title` | `product_description` (2000자 절단) | 표시용 |
-| `Official URL` | URL | ✓ | `html_url` | FDA Recalls L2 (고정) | Evidence A 게이트 |
-| `Type or Class` | Select |  | `Rule` / `Proposed Rule` / `Notice` / `Presidential Document` | `Class I` / `Class II` / `Class III` | 7개 옵션 사전 등록됨, 새 값은 자동 생성 |
-| `Firm` | Rich text |  | (비움) | `recalling_firm` | Recall 전용 |
-| `Body` | Rich text |  | `abstract` (2000자 절단) | `reason_for_recall` (2000자 절단) | 본문 요약 필드 |
-| `Distribution` | Rich text |  | (비움) | `distribution_pattern` (2000자 절단) | Recall 전용 |
-| `Comments Close` | Date |  | `comments_close_on` | (비움) | Watch 항목 분류용 |
-| `Run Date (KST)` | Date | ✓ | 수집 실행일 KST 자정 | 동일 | Routine filter key |
-| `Collected At` | Date | ✓ | 수집 실행 timestamp (with time) | 동일 | 감사 추적용 |
-| `API Query` | URL | ✓ | 호출한 FR API URL | 호출한 OpenFDA API URL | Evidence A 정보 출처 |
-| `QA Relevance` | Select |  | `Likely / Possible / Unrelated / Pending` | 동일 | 4개 옵션 사전 등록됨 |
-| `OSD Relevance` | Select |  | `N/A` (FR 항목) | `Direct / Indirect / N/A` | **v15.1 신규** — Notion에 수동 추가 필요. 옵션 3개: Direct, Indirect, N/A |
-| `Status` | Select |  | `New / Processed / Skipped / Error` | 동일 | 4개 옵션 사전 등록됨, Routine 이 갱신 (v15.1: Processed/Skipped 실제 갱신 지시 추가됨) |
+| 이름 | 타입 | 필수 | 값/옵션 | 비고 |
+|---|---|---|---|---|
+| `Name` | Title | ✓ | `{source-prefix} {document_id} — {headline}` | 자동 생성 |
+| `Source` | Select | ✓ | `Federal Register` / `OpenFDA Recall` / `EMA` / `MHRA Inspectorate` / `PIC/S` / `ECA Academy` / `FDA Warning Letter` / `Brave Search` / `RAPS` / `European Pharma Review` / `MFDS` | `MFDS` 추가 완료 |
+| `Document ID` | Rich text | ✓ | 소스별 고유 ID 또는 stable hash | 검색·중복 제거 키 |
+| `Date` | Date | ✓ | 문서 발행일/게시일 | 수집 윈도우 필터용 |
+| `Headline` | Rich text | ✓ | 제목/제품명/게시글 제목 | 표시용 |
+| `Official URL` | URL |  | 공식 원문 URL | Search Evidence C는 비울 수 있음 |
+| `Source URL` | URL |  | Search/Scrape가 발견한 실제 URL | Phase 2a 신규 |
+| `Type or Class` | Select |  | `Rule` / `Proposed Rule` / `Notice` / `Class I` / `Class II` / `Class III` / `legislative-notice` / `gmp-guideline` / `gmp-inspection` / `regulation-final` / `notice-final` / `guidance-industry` / `guidance-internal` / `safety-letter` 등 | MFDS는 사람용 번역 없이 기계용 영문 키 사용 |
+| `Firm` | Rich text |  | 업체명 | Recall/WL 중심 |
+| `Body` | Rich text |  | 요약/본문 일부 | 한국어 원문은 그대로 저장 |
+| `Distribution` | Rich text |  | `distribution_pattern` | Recall 전용 |
+| `Comments Close` | Date |  | 의견수렴 종료일 | Watch 항목 분류용 |
+| `Run Date (KST)` | Date | ✓ | 수집 실행일 KST 자정 | Routine filter key |
+| `Collected At` | Date | ✓ | 수집 실행 timestamp (with time) | 감사 추적용 |
+| `API Query` | URL |  | 호출 API/RSS URL | Evidence A 정보 출처 |
+| `Search Query` | Rich text |  | Brave Search 쿼리 | Phase 2a 신규 |
+| `Raw Excerpt` | Rich text |  | Search snippet/excerpt | Phase 2a 신규 |
+| `Evidence Candidate` | Select |  | `A` / `B` / `C` / `D` | 수집기 후보, Routine 최종 판정 |
+| `QA Relevance` | Select |  | `Likely` / `Possible` / `Unrelated` / `Pending` | 수집기 휴리스틱 |
+| `OSD Relevance` | Select |  | `Direct` / `Indirect` / `N/A` | OpenFDA Recall 중심 |
+| `Source Type` | Select |  | `Official API` / `Official Regulatory Page` / `Official Regulator Blog` / `Expert Secondary` / `Search Result` / `Official Page Scrape` | Phase 2 분류 |
+| `Signal Tier` | Select |  | `Tier 1` / `Tier 2` / `Tier 3` | 수집기 1차 우선순위 |
+| `Language` | Select |  | `KO` / `EN` | Phase 2b MFDS 권고 필드 |
+| `Region/Jurisdiction` | Select |  | `Korea (MFDS)` 등 | 글로벌 확장용 선택 필드 |
+| `Status` | Select |  | `New` / `Processed` / `Skipped` / `Error` | Routine 이 갱신 |
 
 ## 페이지 본문(children)
 
@@ -91,7 +99,7 @@ v15.0 Routine 은 Notion MCP `notion-fetch` 또는 데이터소스 query 로 다
 Database ID: 7784c71fb7b343749b2bee5d04db7926
 Data Source: collection://d5b9634a-2bd7-4036-ba06-e4ad17ede288
 
-Source: any of [Federal Register, OpenFDA Recall]
+Source: any of [Federal Register, OpenFDA Recall, EMA, MHRA Inspectorate, PIC/S, ECA Academy, FDA Warning Letter, Brave Search, MFDS]
 Run Date (KST): equals 오늘(KST 자정)
 Status: any of [New, Processed]
 ```
